@@ -191,8 +191,8 @@ class TestDjangoQueries(unittest.TestCase):
         (
             "cur%A4=1",
             "cur%A4=1",
-            "iso-8859-15",
-            {'cur€': 1},
+            "iso-8859-16",
+            {"cur€": 1},
         ),
         (
             b"author__email=alfred%40example.com",
@@ -271,13 +271,13 @@ class TestDjangoQueries(unittest.TestCase):
             b"name+name=MyAction",
             "name+name=MyAction",
             "utf-8",
-            {'name name': 'MyAction'},
+            {"name name": "MyAction"},
         ),
         (
             b"abc%20def=1",
             "name+name=MyAction",
             "utf-8",
-            {'abc def': 1},
+            {"abc def": 1},
         ),
         (
             b"next=/url%2520with%2520spaces/",
@@ -356,17 +356,23 @@ class TestDjangoQueries(unittest.TestCase):
     def test_str(self):
         for qs, _, encoding, result in self.str_examples:
             with self.subTest(data=qs, encoding=encoding):
-                self.assertEqual(formality.query.loads(qs, coerce=True), result)
+                self.assertEqual(
+                    formality.query.loads(qs, encoding=encoding, coerce=True), result
+                )
 
     def test_bytes(self):
         for qs, _, encoding, result in self.bytes_examples:
             with self.subTest(data=qs, encoding=encoding):
-                self.assertEqual(formality.query.loads(qs, coerce=True), result)
+                self.assertEqual(
+                    formality.query.loads(qs, encoding=encoding, coerce=True), result
+                )
 
     def test_urldecoding(self):
         for qs, _, encoding, result in self.decoding_examples:
             with self.subTest(data=qs, encoding=encoding):
-                self.assertEqual(formality.query.loads(qs, coerce=True), result)
+                self.assertEqual(
+                    formality.query.loads(qs, encoding=encoding, coerce=True), result
+                )
 
 
 class TestJQueryBbqQueries(unittest.TestCase):
