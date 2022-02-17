@@ -10,6 +10,20 @@ from typing import Dict, Union, Text, Any, List
 def loads(
     qs: Union[str, bytes], encoding: str = 'utf-8', coerce: bool = True
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
+    """
+    References:
+        https://benalman.com/projects/jquery-bbq-plugin/
+        https://benalman.com/code/projects/jquery-bbq/examples/deparam/
+        https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/jquery.ba-bbq.js#L444-L556
+    """
+    constants = {
+    "true": True,
+    "false": False,
+    "null": None,
+    "NaN": json.decoder.NaN,
+    "Infinity": json.decoder.PosInf,
+    "-Infinity": json.decoder.NegInf,
+    }
     obj = {}
     # Fast path, empty query-string.
     if not qs:
@@ -26,9 +40,10 @@ def loads(
     # Iterate over all name=value pairs.
     for part in qs.split("&"):
         param = part.split("=", 1)
-        # key may need decoding as per parse_qsl
+        # translate key as per urllib.parse.parse_qsl
         key = unquote(param[0].replace("+", " "), encoding)
         try:
+            # translate value as per urllib.parse.parse_qsl
             val = unquote(param[1].replace("+", " "), encoding)
         except IndexError:
             # No value was defined, so set something meaningful.
@@ -54,28 +69,21 @@ def loads(
             keys_last = 0
 
         if len(param) == 2:
-
             if coerce and val:
-                if val == "true":
-                    val = True
-                elif val == "false":
-                    val = False
-                elif val == "null":
-                    val = None
-                elif val == "NaN":
-                    val = json.decoder.NaN
-                elif val == "Infinity":
-                    val = json.decoder.PosInf
-                elif val == "-Infinity":
-                    val = json.decoder.NegInf
+                if val in constants:
+                    val = constants[val]
                 else:
-                    match_number = json.scanner.NUMBER_RE.match(val)
+                    # using .match would seem to catch "1�" and "3\r\n"
+                    # but using .fullmatch doesn't catch '0000000000000000000000'
+                    match_number = json.scanner.NUMBER_RE.fullmatch(val)
                     if match_number is not None:
                         integer, frac, exp = match_number.groups()
                         if frac or exp:
                             val = float(integer + (frac or "") + (exp or ""))
                         else:
                             val = int(integer)
+                    elif all(chr in string.digits for chr in val):
+                        val = int(val)
 
             # Complex key, build deep object structure based on a few rules:
             # The 'cur' pointer starts at the object top-level.
@@ -150,20 +158,20 @@ def loads(
 
 
 def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]):
-    for key, value in data.items():
-        pass
+    """
 
+    References:
+        https://github.com/knowledgecode/jquery-param/blob/master/src/index.js
+    """
+    s = []
 
-from pprint import pprint
-
-tests = (
-    "xyz[2][][y][][woo]=4&abc=1&def[[[]&a[[[=2",
-    "b[z][]=",
-    "a=1&a=2&a=3&b=4&c=true&d=0",
-    "a[]=1&a[]=2&a[]=3&b=4&c=true&d=0",
-    "a[]=4&a[]=5&a[]=6&b[x][]=7&b[y]=8&b[z][]=9&b[z][]=0&b[z][]=true&b[z][]=false&b[z][]=undefined&b[z][]=&c=1",
-    "a[]=0&a[1][]=1&a[1][]=2&a[2][]=3&a[2][1][]=4&a[2][1][]=5&a[2][2][]=6&a[3][b][]=7&a[3][b][1][]=8&a[3][b][1][]=9 &a[3][b][2][0][c]=10&a[3][b][2][0][d]=11&a[3][b][3][0][]=12&a[3][b][4][0][0][]=13&a[3][b][5][e][f][g][]=14 &a[3][b][5][e][f][g][1][]=15&a[3][b][]=16&a[]=17",
-)
-for test in tests:
-    pprint(loads(test))
-    print()
+    def build_params(prefix, obj) -> list:
+        if prefix:
+            pass
+        elif isinstance(obj, list):
+            pass
+        else:
+            for key in obj:
+                build_params(key, obj[key])
+        return s
+    return "&".join(build_params('', data))
