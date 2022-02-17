@@ -393,11 +393,15 @@ class TestJQueryBbqQueries(unittest.TestCase):
                     {
                         "b": [
                             7,
-                            [8, 9],
+                            # string '9 ' differs from jquery-bbq's deparam, which
+                            # coerces it to the number 9 by doing "+val" - i.e.
+                            # in JS +'9 ' yields a Number instance.
+                            [8, '9 '],
                             [{"c": 10, "d": 11}],
                             [[12]],
                             [[[13]]],
-                            {"e": {"f": {"g": [14, [15]]}}},
+                            # string '14 ' differs for the same reasons as '9 ' above.
+                            {"e": {"f": {"g": ['14 ', [15]]}}},
                             16,
                         ]
                     },
@@ -444,14 +448,20 @@ class TestOdditiesAndMalformed(unittest.TestCase):
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=
         ("a[]]]=", {'a': {']]': ''}}),
-        ("a[]]]", {}),
+        # sort of matchs jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]
+        # when coercion is used, it becomes {}, but without it, it's the same
+        # as below...
+        ("a[]]]", {'a[]]]': ''}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[0]=1
         ("a[0]=1", {'a': [1]}),
-        # matches jquery-bbq's deparam
+        # matches jquery-bbq's deparam, except that's full of nulls (None) rather
+        # the expected type
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[2]=3&a[4]=1
         ("a[2]=3&a[4]=1", {'a': [0, 0, 3, 0, 1]}),
-        # matches jquery-bbq's deparam
+        # matches jquery-bbq's deparam, except that's full of nulls (None) rather
+        # the expected type
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[4]=1
         ("a[4]=1", {'a': [0, 0, 0, 0, 1]}),
         # matches jquery-bbq's deparam
@@ -459,11 +469,9 @@ class TestOdditiesAndMalformed(unittest.TestCase):
         ("a[]]]=1", {'a': {']]': 1}}),
         (
             "xyz[2][][y][][woo]=4&abc=1&def[[[]&a[[[=2",
-            # I need to make a decision about whether the holes in an array
-            # are NULL or empty versions of the expected data structure.
-            # That is, x[4] where x is an array but doesn't have enough items
-            # in it for index assignemtn to work, needs to patch SOMETHING in.
-            {"xyz": [[], [], [{"y": [{"woo": 4}]}]], "abc": 1, "a[[[": 2},
+            # unlike jquery-bbq's deparam, this backfills the same type as the
+            # incoming value, so we get [[], [], ...] instead of [None, None, ...]
+            {'a[[[': 2, 'abc': 1, 'def[[[]': '', 'xyz': [[], [], [{'y': [{'woo': 4}]}]]},
         ),
         ("b[z][]=", {"b": {"z": [""]}}),
     )

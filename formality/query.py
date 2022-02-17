@@ -127,14 +127,16 @@ def loads(
                                 return inner2()
                         return val
 
+                    # Need the value slightly ahead-of-time to backfill incomplete
+                    # arrays with the same type...
+                    bit = inner()
                     if isinstance(cur, list) and isinstance(key, int):
                         # Have to fill up the list if the key isn't 0, because
                         # Python is less lax and it'd be an:
                         # IndexError: list assignment index out of range
                         while len(cur) <= key:
-                            cur.append(inner())
-                    else:
-                        cur[key] = inner()
+                            cur.append(type(bit)())
+                    cur[key] = bit
                     cur = cur[key]
                     i += 1
             # Simple key, even simpler rules, since only scalars and shallow
