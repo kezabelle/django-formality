@@ -396,12 +396,12 @@ class TestJQueryBbqQueries(unittest.TestCase):
                             # string '9 ' differs from jquery-bbq's deparam, which
                             # coerces it to the number 9 by doing "+val" - i.e.
                             # in JS +'9 ' yields a Number instance.
-                            [8, '9 '],
+                            [8, "9 "],
                             [{"c": 10, "d": 11}],
                             [[12]],
                             [[[13]]],
                             # string '14 ' differs for the same reasons as '9 ' above.
-                            {"e": {"f": {"g": ['14 ', [15]]}}},
+                            {"e": {"f": {"g": ["14 ", [15]]}}},
                             16,
                         ]
                     },
@@ -421,9 +421,76 @@ class TestJQueryBbqQueries(unittest.TestCase):
                 "c": 1,
             },
         ),
+        # from the jquery-bbq unit tests
+        # https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/unit/unit.js#L472
+        # we notably don't handle undefined.
+        (
+            "a=1&a=2&a=3&b=4&c=5&c=6&c=true&c=false&c=undefined&c=&d=7",
+            {"a": [1, 2, 3], "b": 4, "c": [5, 6, True, False, "undefined", ""], "d": 7},
+        ),
+        # from the jquery-bbq unit tests
+        # https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/unit/unit.js#L640-L642
+        (
+            "a[]=4&a[]=5&a[]=6&b[x][]=7&b[y]=8&b[z][]=9&b[z][]=0&b[z][]=true&b[z][]=false&b[z][]=undefined&b[z][]=",
+            {
+                "a": [4, 5, 6],
+                "b": {"x": [7], "y": 8, "z": [9, 0, True, False, "undefined", ""]},
+            },
+        ),
+        # from the jquery-bbq unit tests
+        # https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/unit/unit.js#L650-L652
+        (
+            "a[]=4&a[]=5&a[]=6&b[x][]=7&b[y]=8&b[z][]=9&b[z][]=0&b[z][]=true&b[z][]=false&b[z][]=undefined&b[z][]=&c=2",
+            {
+                "a": [4, 5, 6],
+                "b": {"x": [7], "y": 8, "z": [9, 0, True, False, "undefined", ""]},
+                "c": 2,
+            },
+        ),
     )
 
     def test_examples_from_website(self):
+        for qs, result in self.str_examples:
+            with self.subTest(data=qs):
+                self.assertEqual(formality.query.loads(qs, coerce=True), result)
+
+
+class TestRackQueries(unittest.TestCase):
+    # Mostly from https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L170-L298
+    str_examples = (
+        ('foo="bar"', {'foo': '"bar"'}),
+        ("foo&foo=", {'foo': ['', '']}),
+        ("&foo=1&&bar=2", {'bar': 2, 'foo': 1}),
+        ("foo&bar=", {'bar': '', 'foo': ''}),
+        ("my+weird+field=q1%212%22%27w%245%267%2Fz8%29%3F", {'my weird field': 'q1!2"\'w$5&7/z8)?'}),
+        ("a=b&pid%3D1234=1023", {'a': 'b', 'pid=1234': 1023}),
+        ("foo[]", {}),
+        ("foo[]=", {'foo': ['']}),
+        ("foo[]=bar", {'foo': ['bar']}),
+        ("foo[]=bar&foo", {}),
+        ("foo[]=bar&foo[", {'foo': ['bar'], 'foo[': ''}),
+        ("foo[]=bar&foo[=baz", {'foo': ['bar'], 'foo[': 'baz'}),
+        ("foo[]=bar&foo[]", {}),
+        ("x[y][z]", {}),
+        ("x[y][z]=1", {'x': {'y': {'z': 1}}}),
+        ("x[y][z]=1&x[y][z]=2", {'x': {'y': {'z': 2}}}),
+        ("x[y][z][]=1&x[y][z][]=2", {'x': {'y': {'z': [1, 2]}}}),
+        ("x[y][][z]=1&x[y][][w]=2", {'x': {'y': [{'z': 1}, {'w': 2}]}}),
+        ("data[books][][data][page]=1&data[books][][data][page]=2", {'data': {'books': [{'data': {'page': 1}}, {'data': {'page': 2}}]}}),
+        ("x[y]=1&x[]=1", {}),
+        ("x[y]=1&x[y][][w]=2", {}),
+        ("foo%81E=1", {'foo�E': 1}),
+        (
+            "x[][id]=1&x[][y][a]=5&x[][y][b]=7&x[][z][id]=3&x[][z][w]=0&x[][id]=2&x[][y][a]=6&x[][y][b]=8&x[][z][id]=4&x[][z][w]=0",
+            {},
+        ),
+        ("[]=1&[a]=2&b[=3&c]=4", {}),
+        ("d[[]=5&e][]=6&f[[]]=7", {}),
+        ("g[h]i=8&j[k]l[m]=9", {}),
+        ("l[[[[[[[[]]]]]]]=10", {}),
+    )
+
+    def test_examples_from_unit_tests(self):
         for qs, result in self.str_examples:
             with self.subTest(data=qs):
                 self.assertEqual(formality.query.loads(qs, coerce=True), result)
@@ -433,45 +500,50 @@ class TestOdditiesAndMalformed(unittest.TestCase):
     str_examples = (
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]=1
-        ("a]=1", {'a]': 1}),
+        ("a]=1", {"a]": 1}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]]]=1
-        ("a]]]=1", {'a]]]': 1}),
+        ("a]]]=1", {"a]]]": 1}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[=1
-        ("a[[[=1", {'a[[[': 1}),
+        ("a[[[=1", {"a[[[": 1}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=1
         #  ... not really sure it _should_ be this, but hey so. Seems like it
         # ought to be {"a": {"[[": 1}} tbh.
-        ("a[[[]=1", {'a': [[[1]]]}),
+        ("a[[[]=1", {"a": [[[1]]]}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=
-        ("a[]]]=", {'a': {']]': ''}}),
+        ("a[]]]=", {"a": {"]]": ""}}),
         # sort of matchs jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]
         # when coercion is used, it becomes {}, but without it, it's the same
         # as below...
-        ("a[]]]", {'a[]]]': ''}),
+        ("a[]]]", {"a[]]]": ""}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[0]=1
-        ("a[0]=1", {'a': [1]}),
+        ("a[0]=1", {"a": [1]}),
         # matches jquery-bbq's deparam, except that's full of nulls (None) rather
         # the expected type
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[2]=3&a[4]=1
-        ("a[2]=3&a[4]=1", {'a': [0, 0, 3, 0, 1]}),
+        ("a[2]=3&a[4]=1", {"a": [0, 0, 3, 0, 1]}),
         # matches jquery-bbq's deparam, except that's full of nulls (None) rather
         # the expected type
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[4]=1
-        ("a[4]=1", {'a': [0, 0, 0, 0, 1]}),
+        ("a[4]=1", {"a": [0, 0, 0, 0, 1]}),
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]=1
-        ("a[]]]=1", {'a': {']]': 1}}),
+        ("a[]]]=1", {"a": {"]]": 1}}),
         (
             "xyz[2][][y][][woo]=4&abc=1&def[[[]&a[[[=2",
             # unlike jquery-bbq's deparam, this backfills the same type as the
             # incoming value, so we get [[], [], ...] instead of [None, None, ...]
-            {'a[[[': 2, 'abc': 1, 'def[[[]': '', 'xyz': [[], [], [{'y': [{'woo': 4}]}]]},
+            {
+                "a[[[": 2,
+                "abc": 1,
+                "def[[[]": "",
+                "xyz": [[], [], [{"y": [{"woo": 4}]}]],
+            },
         ),
         ("b[z][]=", {"b": {"z": [""]}}),
     )

@@ -83,7 +83,12 @@ def loads(
                         else:
                             val = int(integer)
                     elif all(chr in string.digits for chr in val):
-                        val = int(val)
+                        if '.' not in val and val[0] == "0":
+                            # don't convert, because it's a special string
+                            # like 'account': '003532663'
+                            pass
+                        else:
+                            val = int(val)
 
             # Complex key, build deep object structure based on a few rules:
             # The 'cur' pointer starts at the object top-level.
