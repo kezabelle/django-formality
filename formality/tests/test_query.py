@@ -376,11 +376,102 @@ class TestDjangoQueries(unittest.TestCase):
 
 
 class TestJQueryBbqQueries(unittest.TestCase):
-    pass
+    str_examples = (
+        ("a=1&a=2&a=3&b=4&c=true&d=0", {"a": [1, 2, 3], "b": 4, "c": True, "d": 0}),
+        (
+            "a[]=1&a[]=2&a[]=3&b=4&c=true&d=0",
+            {"a": [1, 2, 3], "b": 4, "c": True, "d": 0},
+        ),
+        (
+            "a[]=0&a[1][]=1&a[1][]=2&a[2][]=3&a[2][1][]=4&a[2][1][]=5&a[2][2][]=6&a[3][b][]=7&a[3][b][1][]=8&a[3][b][1][]=9 &a[3][b][2][0][c]=10&a[3][b][2][0][d]=11&a[3][b][3][0][]=12&a[3][b][4][0][0][]=13&a[3][b][5][e][f][g][]=14 &a[3][b][5][e][f][g][1][]=15&a[3][b][]=16&a[]=17",
+            # this is nonsense, but it mostly works. Couple of coercion failures?
+            {
+                "a": [
+                    0,
+                    [1, 2],
+                    [3, [4, 5], [6]],
+                    {
+                        "b": [
+                            7,
+                            [8, 9],
+                            [{"c": 10, "d": 11}],
+                            [[12]],
+                            [[[13]]],
+                            {"e": {"f": {"g": [14, [15]]}}},
+                            16,
+                        ]
+                    },
+                    17,
+                ]
+            },
+        ),
+        (
+            "a[]=4&a[]=5&a[]=6&b[x][]=7&b[y]=8&b[z][]=9&b[z][]=0&b[z][]=true&b[z][]=false&b[z][]=undefined&b[z][]=&c=1",
+            {
+                "a": [4, 5, 6],
+                # undefined notably cannot become JS undefined as there's no such
+                # thing in Python, and json.loads('{"x": null}') works but
+                # json.loads('{"x": undefined}') does not, it's a
+                # JSONDecodeError: Expecting value: line 1 column 7 (char 6)
+                "b": {"x": [7], "y": 8, "z": [9, 0, True, False, "undefined", ""]},
+                "c": 1,
+            },
+        ),
+    )
+
+    def test_examples_from_website(self):
+        for qs, result in self.str_examples:
+            with self.subTest(data=qs):
+                self.assertEqual(formality.query.loads(qs, coerce=True), result)
 
 
-class TestMalformed(unittest.TestCase):
-    pass
+class TestOdditiesAndMalformed(unittest.TestCase):
+    str_examples = (
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]=1
+        ("a]=1", {'a]': 1}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]]]=1
+        ("a]]]=1", {'a]]]': 1}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[=1
+        ("a[[[=1", {'a[[[': 1}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=1
+        #  ... not really sure it _should_ be this, but hey so. Seems like it
+        # ought to be {"a": {"[[": 1}} tbh.
+        ("a[[[]=1", {'a': [[[1]]]}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=
+        ("a[]]]=", {'a': {']]': ''}}),
+        ("a[]]]", {}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[0]=1
+        ("a[0]=1", {'a': [1]}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[2]=3&a[4]=1
+        ("a[2]=3&a[4]=1", {'a': [0, 0, 3, 0, 1]}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[4]=1
+        ("a[4]=1", {'a': [0, 0, 0, 0, 1]}),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]=1
+        ("a[]]]=1", {'a': {']]': 1}}),
+        (
+            "xyz[2][][y][][woo]=4&abc=1&def[[[]&a[[[=2",
+            # I need to make a decision about whether the holes in an array
+            # are NULL or empty versions of the expected data structure.
+            # That is, x[4] where x is an array but doesn't have enough items
+            # in it for index assignemtn to work, needs to patch SOMETHING in.
+            {"xyz": [[], [], [{"y": [{"woo": 4}]}]], "abc": 1, "a[[[": 2},
+        ),
+        ("b[z][]=", {"b": {"z": [""]}}),
+    )
+
+    def test_ones_encountered_while_building_and_comparing_with_rack(self):
+        for qs, result in self.str_examples:
+            with self.subTest(data=qs):
+                self.assertEqual(formality.query.loads(qs, coerce=True), result)
 
 
 if HAS_HYPOTHESIS:
