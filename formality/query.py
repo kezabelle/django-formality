@@ -1,21 +1,35 @@
 import string
 import json.decoder
+from urllib.parse import unquote
+
 import json.scanner
 from typing import Dict, Union, Text, Any, List
 
 
 
 def loads(
-    qs: str, coerce: bool = True
+    qs: Union[str, bytes], encoding: str = 'utf-8', coerce: bool = True
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
     obj = {}
+    # Fast path, empty query-string.
+    if not qs:
+        return obj
+
+    if isinstance(qs, bytes):
+        # query_string normally contains URL-encoded data, a subset of ASCII.
+        try:
+            qs = qs.decode(encoding)
+        except UnicodeDecodeError:
+            # ... but some user agents are misbehaving :-(
+            qs = qs.decode("iso-8859-1")
+
     # Iterate over all name=value pairs.
     for part in qs.split("&"):
         param = part.split("=", 1)
-        # key may need decoding?
-        key = param[0]
+        # key may need decoding as per parse_qsl
+        key = unquote(param[0].replace("+", " "), encoding)
         try:
-            val = param[1]
+            val = unquote(param[1].replace("+", " "), encoding)
         except IndexError:
             # No value was defined, so set something meaningful.
             val = ""
@@ -135,6 +149,11 @@ def loads(
     return obj
 
 
+def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]):
+    for key, value in data.items():
+        pass
+
+
 from pprint import pprint
 
 tests = (
@@ -148,4 +167,3 @@ tests = (
 for test in tests:
     pprint(loads(test))
     print()
-
