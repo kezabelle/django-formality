@@ -10,7 +10,7 @@ except ModuleNotFoundError:
     HAS_HYPOTHESIS = False
 
 
-class TestDjangoQueries(unittest.TestCase):
+class TestLoadDjangoQueries(unittest.TestCase):
     # These come from running the Django test suite and instrumenting
     # QueryDict.__init__ like so:
     # print(repr(original_qs), repr(query_string), repr(self.encoding), repr(dict(self)), sep=", ", end=",\n")
@@ -381,7 +381,7 @@ class TestDjangoQueries(unittest.TestCase):
                 )
 
 
-class TestJQueryBbqQueries(unittest.TestCase):
+class TestLoadJQueryBbqQueries(unittest.TestCase):
     str_examples = (
         ("a=1&a=2&a=3&b=4&c=true&d=0", {"a": [1, 2, 3], "b": 4, "c": True, "d": 0}),
         (
@@ -461,7 +461,7 @@ class TestJQueryBbqQueries(unittest.TestCase):
                 self.assertEqual(formality.query.loads(qs, coerce=True), result)
 
 
-class TestRackQueries(unittest.TestCase):
+class TestLoadRackQueries(unittest.TestCase):
     # Mostly from https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L170-L298
     str_examples = (
         ('foo="bar"', {"foo": '"bar"'}),
@@ -476,7 +476,7 @@ class TestRackQueries(unittest.TestCase):
         # rack expects {"foo": [""]}
         # bbq expects: {'foo[]': ''}
         # rack is correct ...
-    # ("foo[]", {}),
+        ("foo[]", {}),
         ("foo[]=", {"foo": [""]}),
         ("foo[]=bar", {"foo": ["bar"]}),
         # rack and bbq both agree on this one. 2nd foo replaces the thing wholesale.
@@ -536,7 +536,7 @@ class TestRackQueries(unittest.TestCase):
                 self.assertEqual(formality.query.loads(qs, coerce=True), result)
 
 
-class TestOdditiesAndMalformed(unittest.TestCase):
+class TestLoadOdditiesAndMalformed(unittest.TestCase):
     str_examples = (
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]=1
@@ -592,6 +592,37 @@ class TestOdditiesAndMalformed(unittest.TestCase):
         for qs, result in self.str_examples:
             with self.subTest(data=qs):
                 self.assertEqual(formality.query.loads(qs, coerce=True), result)
+
+
+
+class TestDumpQueries(unittest.TestCase):
+    examples = (
+        ({"test": [1, 2, 3]}, "test%5B0%5D=1&test%5B1%5D=2&test%5B2%5D=3"),
+        ({"test": 1}, "test=1"),
+        ({"test": [{"a": [1, 2]}, {"b": [3, 4]}]}, "test%5B0%5D%5Ba%5D%5B0%5D=1&test%5B0%5D%5Ba%5D%5B1%5D=2&test%5B1%5D%5Bb%5D%5B0%5D=3&test%5B1%5D%5Bb%5D%5B1%5D=4"),
+        # PHP's http_build_query example
+        ({"user": {"name": "Bob Smith", "age": 47, "sex": "M", "dob": "5/12/1956"}, "pastimes": ["golf", "opera", "poker", "rap"], "children": {"bobby": {"age": 12, "sex": "M"}, "sally": {"age": 8, "sex": "F"}}}, "user%5Bname%5D=Bob+Smith&user%5Bage%5D=47&user%5Bsex%5D=M&user%5Bdob%5D=5%2F12%2F1956&pastimes%5B0%5D=golf&pastimes%5B1%5D=opera&pastimes%5B2%5D=poker&pastimes%5B3%5D=rap&children%5Bbobby%5D%5Bage%5D=12&children%5Bbobby%5D%5Bsex%5D=M&children%5Bsally%5D%5Bage%5D=8&children%5Bsally%5D%5Bsex%5D=F"),
+    )
+    maxDiff = None
+    def test_expected_examples(self):
+        for data, qs in self.examples:
+            with self.subTest(data=qs):
+                self.assertEqual(formality.query.dumps(data), qs)
+
+
+class TestRoundTripping(unittest.TestCase):
+    examples = (
+        {"test": [{"a": [1, 2]}, {"b": [3, 4]}]},
+        {"user": {"name": "Bob Smith", "age": 47, "sex": "M", "dob": "5/12/1996"},
+          "pastimes": ["golf", "opera", "poker", "rap"],
+          "children": {"bobby": {"age": 12, "sex": "M"}, "sally": {"age": 8, "sex": "F"}}},
+    )
+    def test_expected_examples(self):
+        for data in self.examples:
+            with self.subTest(data=data):
+                dumped = formality.query.dumps(data)
+                loaded = formality.query.loads(dumped)
+                self.assertEqual(loaded, data)
 
 
 if HAS_HYPOTHESIS:

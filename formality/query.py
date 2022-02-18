@@ -1,6 +1,6 @@
 import string
 import json.decoder
-from urllib.parse import unquote
+from urllib.parse import quote, unquote, quote_plus
 
 import json.scanner
 from typing import Dict, Union, Text, Any, List
@@ -164,21 +164,63 @@ def loads(
     return obj
 
 
-def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]):
+def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]], encoding='utf-8'):
     """
+    Dump a (potentially) nested dictionary into a URL encoded string.
 
     References:
-        https://github.com/knowledgecode/jquery-param/blob/master/src/index.js
+        https://github.com/jquery/jquery/blob/683ceb8ff067ac53a7cb464ba1ec3f88e353e3f5/src/serialize.js#L55-L91
+        https://github.com/knowledgecode/jquery-param/blob/94db6fd4a34107543e4fbad84d119986a155a01f/src/index.js#L10-L48
     """
     s = []
+    constants = {
+        True: "true",
+        False: "false",
+        None: "null",
+        json.decoder.PosInf: "Infinity",
+        json.decoder.NegInf: "-Infinity",
+        # Can't put float('nan') -> NaN in here because it doesn't compute as
+        # the same: float('nan') == float('nan') is False
+    }
+
+    def add(key, value):
+        # Allow for coercion to work if re-loading the same value...
+        if isinstance(value, int):
+            # Subclasses of int/float may override __repr__, but we still
+            # want to encode them as integers/floats in JSON. One example
+            # within the standard library is IntEnum.
+            value = int.__repr__(value)
+        elif value in constants:
+            value = constants[value]
+        elif isinstance(value, float):
+            # see comment above for int
+            if value != value:
+                value = "NaN"
+            else:
+                value = float.__repr__(value)
+        else:
+            value = str(value)
+        quoted_key = quote_plus(key, encoding=encoding)
+        quoted_value = quote_plus(value, encoding=encoding)
+        return f'{quoted_key}={quoted_value}'
 
     def build_params(prefix, obj) -> list:
         if prefix:
-            pass
+
+            if isinstance(obj, list):
+                for i, value in enumerate(obj):
+                    build_params(f"{prefix}[{i}]", value)
+            elif isinstance(obj, dict):
+                for key, value in obj.items():
+                    build_params(f"{prefix}[{key}]", value)
+            else:
+                s.append(add(prefix, obj))
+
         elif isinstance(obj, list):
-            pass
+            for i, value in enumerate(obj):
+                s.append(add(f"{prefix}[{i}]", value))
         else:
-            for key in obj:
-                build_params(key, obj[key])
+            for key, value in obj.items():
+                build_params(key, value)
         return s
     return "&".join(build_params('', data))
