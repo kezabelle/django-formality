@@ -83,7 +83,7 @@ def loads(
                         else:
                             val = int(integer)
                     elif all(chr in string.digits for chr in val):
-                        if '.' not in val and val[0] == "0":
+                        if val[0] == "0":
                             # don't convert, because it's a special string
                             # like 'account': '003532663'
                             pass

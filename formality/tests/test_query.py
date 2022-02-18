@@ -77,7 +77,10 @@ class TestDjangoQueries(unittest.TestCase):
             "counter=0000000000000000000000",
             "counter=0000000000000000000000",
             "utf-8",
-            {"counter": 0},
+            # If a string is all numbers but the first is 0 then it's probably
+            # a special string rather than an int, so don't trim the leading
+            # zeroes. 000225 becomes "000225" not 225.
+            {"counter": "0000000000000000000000"},
         ),
         (
             "is_superuser__exact=0&is_staff__exact=0",
@@ -159,7 +162,10 @@ class TestDjangoQueries(unittest.TestCase):
             b"counter=0000000000000000000000",
             "counter=0000000000000000000000",
             "utf-8",
-            {"counter": 0},
+            # If a string is all numbers but the first is 0 then it's probably
+            # a special string rather than an int, so don't trim the leading
+            # zeroes. 000225 becomes "000225" not 225.
+            {"counter": "0000000000000000000000"},
         ),
         (
             b"o=-1",
@@ -458,36 +464,70 @@ class TestJQueryBbqQueries(unittest.TestCase):
 class TestRackQueries(unittest.TestCase):
     # Mostly from https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L170-L298
     str_examples = (
-        ('foo="bar"', {'foo': '"bar"'}),
-        ("foo&foo=", {'foo': ['', '']}),
-        ("&foo=1&&bar=2", {'bar': 2, 'foo': 1}),
-        ("foo&bar=", {'bar': '', 'foo': ''}),
-        ("my+weird+field=q1%212%22%27w%245%267%2Fz8%29%3F", {'my weird field': 'q1!2"\'w$5&7/z8)?'}),
-        ("a=b&pid%3D1234=1023", {'a': 'b', 'pid=1234': 1023}),
-        ("foo[]", {}),
-        ("foo[]=", {'foo': ['']}),
-        ("foo[]=bar", {'foo': ['bar']}),
-        ("foo[]=bar&foo", {}),
-        ("foo[]=bar&foo[", {'foo': ['bar'], 'foo[': ''}),
-        ("foo[]=bar&foo[=baz", {'foo': ['bar'], 'foo[': 'baz'}),
-        ("foo[]=bar&foo[]", {}),
-        ("x[y][z]", {}),
-        ("x[y][z]=1", {'x': {'y': {'z': 1}}}),
-        ("x[y][z]=1&x[y][z]=2", {'x': {'y': {'z': 2}}}),
-        ("x[y][z][]=1&x[y][z][]=2", {'x': {'y': {'z': [1, 2]}}}),
-        ("x[y][][z]=1&x[y][][w]=2", {'x': {'y': [{'z': 1}, {'w': 2}]}}),
-        ("data[books][][data][page]=1&data[books][][data][page]=2", {'data': {'books': [{'data': {'page': 1}}, {'data': {'page': 2}}]}}),
-        ("x[y]=1&x[]=1", {}),
-        ("x[y]=1&x[y][][w]=2", {}),
-        ("foo%81E=1", {'foo�E': 1}),
+        ('foo="bar"', {"foo": '"bar"'}),
+        ("foo&foo=", {"foo": ["", ""]}),
+        ("&foo=1&&bar=2", {"bar": 2, "foo": 1}),
+        ("foo&bar=", {"bar": "", "foo": ""}),
+        (
+            "my+weird+field=q1%212%22%27w%245%267%2Fz8%29%3F",
+            {"my weird field": "q1!2\"'w$5&7/z8)?"},
+        ),
+        ("a=b&pid%3D1234=1023", {"a": "b", "pid=1234": 1023}),
+        # rack expects {"foo": [""]}
+        # bbq expects: {'foo[]': ''}
+        # rack is correct ...
+    # ("foo[]", {}),
+        ("foo[]=", {"foo": [""]}),
+        ("foo[]=bar", {"foo": ["bar"]}),
+        # rack and bbq both agree on this one. 2nd foo replaces the thing wholesale.
+        ("foo[]=bar&foo", {'foo': ''}),
+        ("foo[]=bar&foo[", {"foo": ["bar"], "foo[": ""}),
+        ("foo[]=bar&foo[=baz", {"foo": ["bar"], "foo[": "baz"}),
+        # rack expects: {"foo": ["bar", ""]}
+        # bbq expects different things depending on coercion. Neither results in
+        # the array getting extended.
+        # rack is correct.
+    # ("foo[]=bar&foo[]", {}),
+        # rack expects: {"x":  { "y":  { "z":  "" } }
+        # bbq produces {'x[y][z]': ''} or {} depending on coercion ...
+        # rack is more correct.
+    # ("x[y][z]", {}),
+        ("x[y][z]=1", {"x": {"y": {"z": 1}}}),
+        ("x[y][z]=1&x[y][z]=2", {"x": {"y": {"z": 2}}}),
+        ("x[y][z][]=1&x[y][z][]=2", {"x": {"y": {"z": [1, 2]}}}),
+        ("x[y][][z]=1&x[y][][w]=2", {"x": {"y": [{"z": 1}, {"w": 2}]}}),
+        (
+            "data[books][][data][page]=1&data[books][][data][page]=2",
+            {"data": {"books": [{"data": {"page": 1}}, {"data": {"page": 2}}]}},
+        ),
+        # rack expects: an exception to be thrown.
+        # bbq expects: {'x': {"undefined": 2, 'y': 1}}
+    # ("x[y]=1&x[]=2", {}),
+        # rack expects: an exception to be thrown.
+        # bbq expects: { "x": { "y": 1 } }
+    # ("x[y]=1&x[y][][w]=2", {}),
+        ("foo%81E=1", {"foo�E": 1}),
+        # rack expects: {"x": [{"id": "1", "y": {"a": "5", "b": "7" }, "z": {"id": "3", "w": "0" } }, {"id": "2", "y": {"a": "6", "b": "8" }, "z": {"id": "4", "w": "0" }}]
+        # bbq expects:  {"x": [{"id": 1}, {"y": {"a": 5}}, {"y": {"b": 7}}, {"z": {"id": 3}}, {"z": {"w": 0}}, {"id": 2}, {"y": {"a": 6}}, {"y": {"b": 8}}, {"z": {"id": 4}}, {"z": {"w": 0}}]}
         (
             "x[][id]=1&x[][y][a]=5&x[][y][b]=7&x[][z][id]=3&x[][z][w]=0&x[][id]=2&x[][y][a]=6&x[][y][b]=8&x[][z][id]=4&x[][z][w]=0",
-            {},
+            {"x": [{"id": 1}, {"y": {"a": 5}}, {"y": {"b": 7}}, {"z": {"id": 3}}, {"z": {"w": 0}}, {"id": 2}, {"y": {"a": 6}}, {"y": {"b": 8}}, {"z": {"id": 4}}, {"z": {"w": 0}}]},
         ),
-        ("[]=1&[a]=2&b[=3&c]=4", {}),
-        ("d[[]=5&e][]=6&f[[]]=7", {}),
-        ("g[h]i=8&j[k]l[m]=9", {}),
-        ("l[[[[[[[[]]]]]]]=10", {}),
+    # rack expects: {"[]":  "1", "[a]":  "2", "b[":  "3", "c]":  "4"}
+    # bbq expects: { "undefined": [1], "b[": 3, "c]": 4 }
+    # ("[]=1&[a]=2&b[=3&c]=4", {}),
+        # rack expects: {"d":  {"[":  "5"}, "e]":  ["6"], "f":  { "[":  { "]":  "7" } }
+        # bbq expects: {"d": [ [5] ], "e][]": 6, "f": [ {"]": 7}]}
+    # ("d[[]=5&e][]=6&f[[]]=7", {}),
+        # This currently matches neither Rack nor jquery-bbq.
+        # rack expects: {"g": { "h": { "i": "8" } }, "j": { "k": { "l[m]": "9" }}}
+        # bbq expects: { "g[h]i": 8, "j": { "k]l": { "m": 9 }}}
+        # ... neither seems right tbh.
+    # ("g[h]i=8&j[k]l[m]=9", {}),
+        # This conforms to jquery-bbq as well as rack. Yay.
+        # https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L297
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?l[[[[[[[[]]]]]]]=10
+        ("l[[[[[[[[]]]]]]]=10", {"l": [[[[[[[{"]]]]]]": 10}]]]]]]]}),
     )
 
     def test_examples_from_unit_tests(self):
