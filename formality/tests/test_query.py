@@ -496,11 +496,11 @@ class TestLoadRackQueries(unittest.TestCase):
         # bbq expects different things depending on coercion. Neither results in
         # the array getting extended.
         # rack is correct.
-        ("foo[]=bar&foo[]", {'foo': ['bar', '']}),
+        ("foo[]=bar&foo[]", {"foo": ["bar", ""]}),
         # rack expects: {"x":  { "y":  { "z":  "" } }
         # bbq produces {'x[y][z]': ''} or {} depending on coercion ...
         # rack is more correct.
-        ("x[y][z]", {'x': {'y': {'z': ''}}}),
+        ("x[y][z]", {"x": {"y": {"z": ""}}}),
         ("x[y][z]=1", {"x": {"y": {"z": 1}}}),
         ("x[y][z]=1&x[y][z]=2", {"x": {"y": {"z": 2}}}),
         ("x[y][z][]=1&x[y][z][]=2", {"x": {"y": {"z": [1, 2]}}}),
@@ -537,14 +537,14 @@ class TestLoadRackQueries(unittest.TestCase):
         ),
         # match's rack & bbq
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?b[=3&c]=4
-        ("b[=3&c]=4", {'b[': 3, 'c]': 4}),
+        ("b[=3&c]=4", {"b[": 3, "c]": 4}),
         # Maybe change this at some point? Doesn't match Rack, does match bbq.
-        ("&e][]=6&f=7", {'e][]': 6, 'f': 7}),
+        ("&e][]=6&f=7", {"e][]": 6, "f": 7}),
         # This matches jquery-bbq.
         # rack expects: {"g": { "h": { "i": "8" } }, "j": { "k": { "l[m]": "9" }}}
         # bbq expects: { "g[h]i": 8, "j": { "k]l": { "m": 9 }}}
         # ... neither seems right tbh.
-        ("g[h]i=8&j[k]l[m]=9", {'g[h]i': 8, 'j': {'k]l': {'m': 9}}}),
+        ("g[h]i=8&j[k]l[m]=9", {"g[h]i": 8, "j": {"k]l": {"m": 9}}}),
     )
 
     def test_examples_from_unit_tests(self):
@@ -674,7 +674,33 @@ class TestRoundTripping(unittest.TestCase):
                 "sally": {"age": 8, "sex": "F"},
             },
         },
-        {"0thing": [1, 2], "00ther": 1, 2: [{"1thing": True, "9things": False}, {"4head": None, "5hed": "Shed"}]},
+        {
+            "0thing": [1, 2],
+            "00ther": 1,
+            2: [{"1thing": True, "9things": False}, {"4head": None, "5hed": "Shed"}],
+        },
+    )
+    intrinsic_coercions_examples = (
+        (
+            {
+                "0thing": [1, 2],
+                "00ther": 1,
+                # This key ("2") will get transformed to 2
+                "2": [
+                    {"1thing": True, "9things": False},
+                    {"4head": None, "5hed": "Shed"},
+                ],
+            },
+            {
+                "0thing": [1, 2],
+                "00ther": 1,
+                # This key got transformed
+                2: [
+                    {"1thing": True, "9things": False},
+                    {"4head": None, "5hed": "Shed"},
+                ],
+            },
+        ),
     )
     maxDiff = None
 
@@ -684,6 +710,14 @@ class TestRoundTripping(unittest.TestCase):
                 dumped = formality.query.dumps(data)
                 loaded = formality.query.loads(dumped)
                 self.assertEqual(loaded, data)
+
+    def test_lossy_transforms_due_to_key_coercion_when_roundtripping(self):
+        for data, transformed in self.intrinsic_coercions_examples:
+            with self.subTest(data=data):
+                dumped = formality.query.dumps(data)
+                loaded_coerced = formality.query.loads(dumped)
+                self.assertEqual(loaded_coerced, transformed)
+
 
 
 if HAS_HYPOTHESIS:
