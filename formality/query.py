@@ -139,26 +139,23 @@ def loads(
                     except ValueError:
                         pass
 
-                # https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
-                # Todo: figure out how to unwrap this from being 2 closures
-                def inner2():
-                    if keys[i + 1] and any(
-                        chr not in string.digits for chr in keys[i + 1]
-                    ):
-                        return {}
-                    return []
-
-                def inner():
-                    if i < keys_last:
-                        try:
-                            return cur[key]
-                        except (IndexError, KeyError):
-                            return inner2()
-                    return val
-
+                # fed https://github.com/AceMetrix/jquery-deparam/blob/81428b3939c4cbe488202b5fa823ad661d64fb49/jquery-deparam.js#L83-L86
+                # to https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
                 # Need the value slightly ahead-of-time to backfill incomplete
                 # arrays with the same type...
-                bit = inner()
+                if i < keys_last:
+                    try:
+                        bit = cur[key]
+                    except (IndexError, KeyError):
+                        if keys[i + 1] and any(
+                            chr not in string.digits for chr in keys[i + 1]
+                        ):
+                            bit = {}
+                        else:
+                            bit = []
+                else:
+                    bit = val
+
                 if isinstance(cur, list) and isinstance(key, int):
                     # Have to fill up the list if the key isn't 0, because
                     # Python is less lax and it'd be an:
