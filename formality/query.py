@@ -142,6 +142,11 @@ def loads(
                     key = len(cur)
                 # Does it look like an array key? If so, make it one.
                 elif isinstance(key, str):
+                    # Walk each character, and only convert to an int if all
+                    # of them are numbery. On reasonable length strings, this is
+                    # faster (on balance) than try: int() except:... which takes
+                    # 1µs for "9things" vs 150ns for this method; where "9" takes
+                    # 250ns this way and 140ns using try/except.
                     for chr in key:
                         if chr in string.digits:
                             continue
@@ -159,6 +164,9 @@ def loads(
                         bit = cur[key]
                     except (IndexError, KeyError):
                         if keys[i + 1]:
+                            # It's only a dictionary if the next key has non
+                            # numeric characters in it. See above for performance
+                            # details for doing it this way.
                             for chr in keys[i+1]:
                                 if chr in string.digits:
                                     continue
