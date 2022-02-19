@@ -44,7 +44,9 @@ COERCE_DUMP_CONSTANTS = {
 
 
 def loads(
-    qs: Union[str, bytes], encoding: str = "utf-8", coerce: bool = True,
+    qs: Union[str, bytes],
+    encoding: str = "utf-8",
+    coerce: bool = True,
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
     """
     References:
@@ -167,7 +169,7 @@ def loads(
                             # It's only a dictionary if the next key has non
                             # numeric characters in it. See above for performance
                             # details for doing it this way.
-                            for chr in keys[i+1]:
+                            for chr in keys[i + 1]:
                                 if chr in string.digits:
                                     continue
                                 else:
@@ -180,7 +182,7 @@ def loads(
                 else:
                     bit = val
 
-                if isinstance(cur, list) and isinstance(key, int):
+                if isinstance(cur, list):
                     bit_type = type(bit)
                     # Have to fill up the list if the key isn't 0, because
                     # Python is less lax and it'd be an:
@@ -188,24 +190,25 @@ def loads(
                     while len(cur) <= key:
                         cur.append(bit_type())
                 cur[key] = cur = bit
+
         # Simple key, even simpler rules, since only scalars and shallow
         # arrays are allowed.
+        elif isinstance(obj, dict) and isinstance(obj.get(key), list):
+            # If we've parsed as second value like foo[]=1&foo[]=2, keep
+            # going as an already-made list.
+            # If it's not got the array/dict chars, like foo[]=1&foo=2
+            # then still treat it as an array, because foo=1&foo=2 should
+            # be multiple values for the same key
+            obj[key].append(val)
+        # val isn't an array, but since a second value has been specified,
+        # convert val into an array.
+        # It implicitly ought to be an array/list here, so we can hopefully
+        # ignore the required isinstance check...
+        elif key in obj:
+            obj[key] = [obj.get(key, ""), val]
+        # val is a scalar.
         else:
-            # val is already an array, so push on the next value.
-            if isinstance(obj, dict) and key in obj and isinstance(obj[key], list):
-                # If we've parsed as second value like foo[]=1&foo[]=2, keep
-                # going as an already-made list.
-                # If it's not got the array/dict chars, like foo[]=1&foo=2
-                # then still treat it as an array, because foo=1&foo=2 should
-                # be multiple values for the same key
-                obj[key].append(val)
-            # val isn't an array, but since a second value has been specified,
-            # convert val into an array.
-            elif not isinstance(obj, list) and key in obj:
-                obj[key] = [obj.get(key, ""), val]
-            # val is a scalar.
-            else:
-                obj[key] = val
+            obj[key] = val
 
     return obj
 
