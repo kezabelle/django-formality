@@ -207,6 +207,10 @@ def dumps(
 
     def add(key, value):
         # Allow for coercion to work if re-loading the same value...
+        # The true/false ones have to come before the isinstance test for ints
+        # because isinstance(True, int) is True...
+        if value is True or value is False:
+            value = COERCE_DUMP_CONSTANTS[value]
         if isinstance(value, int):
             # Subclasses of int/float may override __repr__, but we still
             # want to encode them as integers/floats in JSON. One example
