@@ -138,13 +138,16 @@ def loads(
         if keys_last:
             while i <= keys_last:
 
-                key = len(cur) if keys[i] == "" else keys[i]
+                if keys[i] == "":
+                    key = len(cur)
                 # Does it look like an array key? If so, make it one.
-                if isinstance(key, str) and key[0] in string.digits:
+                elif isinstance(keys[i], str) and keys[i][0] in string.digits:
                     try:
-                        key = int(key)
+                        key = int(keys[i])
                     except ValueError:
-                        pass
+                        key = keys[i]
+                else:
+                    key = keys[i]
 
                 # fed https://github.com/AceMetrix/jquery-deparam/blob/81428b3939c4cbe488202b5fa823ad661d64fb49/jquery-deparam.js#L83-L86
                 # to https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
@@ -169,8 +172,7 @@ def loads(
                     # IndexError: list assignment index out of range
                     while len(cur) <= key:
                         cur.append(type(bit)())
-                cur[key] = bit
-                cur = cur[key]
+                cur[key] = cur = bit
                 i += 1
         # Simple key, even simpler rules, since only scalars and shallow
         # arrays are allowed.
