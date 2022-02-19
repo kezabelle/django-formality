@@ -1,6 +1,8 @@
+import re
 import sys
 import unittest
 import formality
+from formality.query import MalformedData
 
 try:
     from hypothesis import given, strategies as st, settings
@@ -476,22 +478,29 @@ class TestLoadRackQueries(unittest.TestCase):
         # rack expects {"foo": [""]}
         # bbq expects: {'foo[]': ''}
         # rack is correct ...
-        ("foo[]", {}),
+        ("foo[]", {"foo": [""]}),
         ("foo[]=", {"foo": [""]}),
         ("foo[]=bar", {"foo": ["bar"]}),
-        # rack and bbq both agree on this one. 2nd foo replaces the thing wholesale.
-        ("foo[]=bar&foo", {'foo': ''}),
+        # rack and bbq both agree on this one.
+        # Ignoring both for simplicity, and the fact that foo=1&foo=2 should be
+        # a single key with multiple values, so it stands to reason that the []
+        # is optional in a simple 1-dim variation.
+        ("foo[]=bar&foo=baz", {"foo": ["bar", "baz"]}),
+        (
+            "foo[test][1]=bar&foo[test][0]=baz&foo[test][]=blarp",
+            {"foo": {"test": ["baz", "bar", "blarp"]}},
+        ),
         ("foo[]=bar&foo[", {"foo": ["bar"], "foo[": ""}),
         ("foo[]=bar&foo[=baz", {"foo": ["bar"], "foo[": "baz"}),
         # rack expects: {"foo": ["bar", ""]}
         # bbq expects different things depending on coercion. Neither results in
         # the array getting extended.
         # rack is correct.
-    # ("foo[]=bar&foo[]", {}),
+        # ("foo[]=bar&foo[]", {}),
         # rack expects: {"x":  { "y":  { "z":  "" } }
         # bbq produces {'x[y][z]': ''} or {} depending on coercion ...
         # rack is more correct.
-    # ("x[y][z]", {}),
+        # ("x[y][z]", {}),
         ("x[y][z]=1", {"x": {"y": {"z": 1}}}),
         ("x[y][z]=1&x[y][z]=2", {"x": {"y": {"z": 2}}}),
         ("x[y][z][]=1&x[y][z][]=2", {"x": {"y": {"z": [1, 2]}}}),
@@ -502,32 +511,42 @@ class TestLoadRackQueries(unittest.TestCase):
         ),
         # rack expects: an exception to be thrown.
         # bbq expects: {'x': {"undefined": 2, 'y': 1}}
-    # ("x[y]=1&x[]=2", {}),
+        # ("x[y]=1&x[]=2", {}),
         # rack expects: an exception to be thrown.
         # bbq expects: { "x": { "y": 1 } }
-    # ("x[y]=1&x[y][][w]=2", {}),
+        # ("x[y]=1&x[y][][w]=2", {}),
         ("foo%81E=1", {"foo�E": 1}),
         # rack expects: {"x": [{"id": "1", "y": {"a": "5", "b": "7" }, "z": {"id": "3", "w": "0" } }, {"id": "2", "y": {"a": "6", "b": "8" }, "z": {"id": "4", "w": "0" }}]
         # bbq expects:  {"x": [{"id": 1}, {"y": {"a": 5}}, {"y": {"b": 7}}, {"z": {"id": 3}}, {"z": {"w": 0}}, {"id": 2}, {"y": {"a": 6}}, {"y": {"b": 8}}, {"z": {"id": 4}}, {"z": {"w": 0}}]}
         (
             "x[][id]=1&x[][y][a]=5&x[][y][b]=7&x[][z][id]=3&x[][z][w]=0&x[][id]=2&x[][y][a]=6&x[][y][b]=8&x[][z][id]=4&x[][z][w]=0",
-            {"x": [{"id": 1}, {"y": {"a": 5}}, {"y": {"b": 7}}, {"z": {"id": 3}}, {"z": {"w": 0}}, {"id": 2}, {"y": {"a": 6}}, {"y": {"b": 8}}, {"z": {"id": 4}}, {"z": {"w": 0}}]},
+            {
+                "x": [
+                    {"id": 1},
+                    {"y": {"a": 5}},
+                    {"y": {"b": 7}},
+                    {"z": {"id": 3}},
+                    {"z": {"w": 0}},
+                    {"id": 2},
+                    {"y": {"a": 6}},
+                    {"y": {"b": 8}},
+                    {"z": {"id": 4}},
+                    {"z": {"w": 0}},
+                ]
+            },
         ),
-    # rack expects: {"[]":  "1", "[a]":  "2", "b[":  "3", "c]":  "4"}
-    # bbq expects: { "undefined": [1], "b[": 3, "c]": 4 }
-    # ("[]=1&[a]=2&b[=3&c]=4", {}),
+        # rack expects: {"[]":  "1", "[a]":  "2", "b[":  "3", "c]":  "4"}
+        # bbq expects: { "undefined": [1], "b[": 3, "c]": 4 }
+        # ("[]=1&[a]=2&b[=3&c]=4", {}),
         # rack expects: {"d":  {"[":  "5"}, "e]":  ["6"], "f":  { "[":  { "]":  "7" } }
         # bbq expects: {"d": [ [5] ], "e][]": 6, "f": [ {"]": 7}]}
-    # ("d[[]=5&e][]=6&f[[]]=7", {}),
+        # ("d[[]=5&e][]=6&f[[]]=7", {}),
         # This currently matches neither Rack nor jquery-bbq.
         # rack expects: {"g": { "h": { "i": "8" } }, "j": { "k": { "l[m]": "9" }}}
         # bbq expects: { "g[h]i": 8, "j": { "k]l": { "m": 9 }}}
         # ... neither seems right tbh.
-    # ("g[h]i=8&j[k]l[m]=9", {}),
+        # ("g[h]i=8&j[k]l[m]=9", {}),
         # This conforms to jquery-bbq as well as rack. Yay.
-        # https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L297
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?l[[[[[[[[]]]]]]]=10
-        ("l[[[[[[[[]]]]]]]=10", {"l": [[[[[[[{"]]]]]]": 10}]]]]]]]}),
     )
 
     def test_examples_from_unit_tests(self):
@@ -542,25 +561,6 @@ class TestLoadOdditiesAndMalformed(unittest.TestCase):
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]=1
         ("a]=1", {"a]": 1}),
         # matches jquery-bbq's deparam
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]]]=1
-        ("a]]]=1", {"a]]]": 1}),
-        # matches jquery-bbq's deparam
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[=1
-        ("a[[[=1", {"a[[[": 1}),
-        # matches jquery-bbq's deparam
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=1
-        #  ... not really sure it _should_ be this, but hey so. Seems like it
-        # ought to be {"a": {"[[": 1}} tbh.
-        ("a[[[]=1", {"a": [[[1]]]}),
-        # matches jquery-bbq's deparam
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=
-        ("a[]]]=", {"a": {"]]": ""}}),
-        # sort of matchs jquery-bbq's deparam
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]
-        # when coercion is used, it becomes {}, but without it, it's the same
-        # as below...
-        ("a[]]]", {"a[]]]": ""}),
-        # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[0]=1
         ("a[0]=1", {"a": [1]}),
         # matches jquery-bbq's deparam, except that's full of nulls (None) rather
@@ -571,17 +571,12 @@ class TestLoadOdditiesAndMalformed(unittest.TestCase):
         # the expected type
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[4]=1
         ("a[4]=1", {"a": [0, 0, 0, 0, 1]}),
-        # matches jquery-bbq's deparam
-        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]=1
-        ("a[]]]=1", {"a": {"]]": 1}}),
         (
-            "xyz[2][][y][][woo]=4&abc=1&def[[[]&a[[[=2",
+            "xyz[2][][y][][woo]=4&abc=1&",
             # unlike jquery-bbq's deparam, this backfills the same type as the
             # incoming value, so we get [[], [], ...] instead of [None, None, ...]
             {
-                "a[[[": 2,
                 "abc": 1,
-                "def[[[]": "",
                 "xyz": [[], [], [{"y": [{"woo": 4}]}]],
             },
         ),
@@ -591,19 +586,72 @@ class TestLoadOdditiesAndMalformed(unittest.TestCase):
     def test_ones_encountered_while_building_and_comparing_with_rack(self):
         for qs, result in self.str_examples:
             with self.subTest(data=qs):
-                self.assertEqual(formality.query.loads(qs, coerce=True), result)
+                self.assertEqual(result, formality.query.loads(qs, coerce=True))
 
+
+class TestStrictlyUnhandledQueries(unittest.TestCase):
+    examples = (
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]]]=1
+        ("a]]]=1", "a]]]"),
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[=1
+        ("a[[[=1", "a[[["),
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[[[]=1
+        # Seems like it ought to be {"a": {"[[": 1}} if anything.
+        ("a[[[]=1", "a[[[]"),
+        ("xyz[2][][y][][woo]=4&abc=1&def[[[]", "def[[[]"),
+        # https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L297
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?l[[[[[[[[]]]]]]]=10
+        ("l[[[[[[[[]]]]]]]=10", "l[[[[[[[[]]]]]]]"),
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]=
+        ("a[]]]=", "a[]]]"),
+        # doesn't match jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]
+        # when coercion is used, it becomes {}, but without it, it's {"a[]]]": ""}
+        # Matches Rack instead.
+        ("a[]]]", "a[]]]"),
+        # matches jquery-bbq's deparam
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]=1
+        ("a[]]]=1", "a[]]]"),
+    )
+
+    def test_all_complex_keys_which_should_be_marked_as_malformed(self):
+        for qs, bad_key in self.examples:
+            bad_key = re.escape(bad_key)
+            with self.subTest(data=qs):
+                with self.assertRaisesRegex(
+                    MalformedData, f"Invalid nesting characters in key '{bad_key}'"
+                ):
+                    formality.query.loads(qs, coerce=True)
 
 
 class TestDumpQueries(unittest.TestCase):
     examples = (
         ({"test": [1, 2, 3]}, "test%5B0%5D=1&test%5B1%5D=2&test%5B2%5D=3"),
         ({"test": 1}, "test=1"),
-        ({"test": [{"a": [1, 2]}, {"b": [3, 4]}]}, "test%5B0%5D%5Ba%5D%5B0%5D=1&test%5B0%5D%5Ba%5D%5B1%5D=2&test%5B1%5D%5Bb%5D%5B0%5D=3&test%5B1%5D%5Bb%5D%5B1%5D=4"),
+        (
+            {"test": [{"a": [1, 2]}, {"b": [3, 4]}]},
+            "test%5B0%5D%5Ba%5D%5B0%5D=1&test%5B0%5D%5Ba%5D%5B1%5D=2&test%5B1%5D%5Bb%5D%5B0%5D=3&test%5B1%5D%5Bb%5D%5B1%5D=4",
+        ),
         # PHP's http_build_query example
-        ({"user": {"name": "Bob Smith", "age": 47, "sex": "M", "dob": "5/12/1956"}, "pastimes": ["golf", "opera", "poker", "rap"], "children": {"bobby": {"age": 12, "sex": "M"}, "sally": {"age": 8, "sex": "F"}}}, "user%5Bname%5D=Bob+Smith&user%5Bage%5D=47&user%5Bsex%5D=M&user%5Bdob%5D=5%2F12%2F1956&pastimes%5B0%5D=golf&pastimes%5B1%5D=opera&pastimes%5B2%5D=poker&pastimes%5B3%5D=rap&children%5Bbobby%5D%5Bage%5D=12&children%5Bbobby%5D%5Bsex%5D=M&children%5Bsally%5D%5Bage%5D=8&children%5Bsally%5D%5Bsex%5D=F"),
+        (
+            {
+                "user": {
+                    "name": "Bob Smith",
+                    "age": 47,
+                    "sex": "M",
+                    "dob": "5/12/1956",
+                },
+                "pastimes": ["golf", "opera", "poker", "rap"],
+                "children": {
+                    "bobby": {"age": 12, "sex": "M"},
+                    "sally": {"age": 8, "sex": "F"},
+                },
+            },
+            "user%5Bname%5D=Bob+Smith&user%5Bage%5D=47&user%5Bsex%5D=M&user%5Bdob%5D=5%2F12%2F1956&pastimes%5B0%5D=golf&pastimes%5B1%5D=opera&pastimes%5B2%5D=poker&pastimes%5B3%5D=rap&children%5Bbobby%5D%5Bage%5D=12&children%5Bbobby%5D%5Bsex%5D=M&children%5Bsally%5D%5Bage%5D=8&children%5Bsally%5D%5Bsex%5D=F",
+        ),
     )
     maxDiff = None
+
     def test_expected_examples(self):
         for data, qs in self.examples:
             with self.subTest(data=qs):
@@ -613,10 +661,16 @@ class TestDumpQueries(unittest.TestCase):
 class TestRoundTripping(unittest.TestCase):
     examples = (
         {"test": [{"a": [1, 2]}, {"b": [3, 4]}]},
-        {"user": {"name": "Bob Smith", "age": 47, "sex": "M", "dob": "5/12/1996"},
-          "pastimes": ["golf", "opera", "poker", "rap"],
-          "children": {"bobby": {"age": 12, "sex": "M"}, "sally": {"age": 8, "sex": "F"}}},
+        {
+            "user": {"name": "Bob Smith", "age": 47, "sex": "M", "dob": "5/12/1996"},
+            "pastimes": ["golf", "opera", "poker", "rap"],
+            "children": {
+                "bobby": {"age": 12, "sex": "M"},
+                "sally": {"age": 8, "sex": "F"},
+            },
+        },
     )
+
     def test_expected_examples(self):
         for data in self.examples:
             with self.subTest(data=data):

@@ -4,11 +4,28 @@ from urllib.parse import quote, unquote, quote_plus
 
 import json.scanner
 from typing import Dict, Union, Text, Any, List
+from django.core.exceptions import SuspiciousOperation
 
+
+class MalformedData(SuspiciousOperation):
+    """
+    When encountering fields like a[[[] or b[]]] just drop them immediately
+    and loudly.
+    """
+
+    __slots__ = ("args", "message", "data", "key")
+
+    def __init__(self, *args, data: str):
+        super().__init__(*args)
+        self.data = data
+        self.key = args[0]
+
+    def __str__(self):
+        return f"Invalid nesting characters in key {self.key!r} of {self.data[0:200]!r}"
 
 
 def loads(
-    qs: Union[str, bytes], encoding: str = 'utf-8', coerce: bool = True
+    qs: Union[str, bytes], encoding: str = "utf-8", coerce: bool = True
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
     """
     References:
@@ -17,12 +34,12 @@ def loads(
         https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/jquery.ba-bbq.js#L444-L556
     """
     constants = {
-    "true": True,
-    "false": False,
-    "null": None,
-    "NaN": json.decoder.NaN,
-    "Infinity": json.decoder.PosInf,
-    "-Infinity": json.decoder.NegInf,
+        "true": True,
+        "false": False,
+        "null": None,
+        "NaN": json.decoder.NaN,
+        "Infinity": json.decoder.PosInf,
+        "-Infinity": json.decoder.NegInf,
     }
     obj = {}
     # Fast path, empty query-string.
@@ -42,6 +59,14 @@ def loads(
         param = part.split("=", 1)
         # translate key as per urllib.parse.parse_qsl
         key = unquote(param[0].replace("+", " "), encoding)
+        # Skip empty keys (e.g. "&foo=1&&bar=2")
+        if not key:
+            continue
+        # Just drop processing immediately if the key looks invalid. Yes there
+        # are false positives for if someone tries to do a[[[] expecting a key
+        # of "[[" or something, but that may not even be what they're expecting...
+        if "[[" in key or "]]" in key:
+            raise MalformedData(key, data=qs)
         try:
             # translate value as per urllib.parse.parse_qsl
             val = unquote(param[1].replace("+", " "), encoding)
@@ -60,7 +85,6 @@ def loads(
         if "[" in keys[0] and "]" in keys[keys_last]:
             # Remove the trailing ] from the last keys part.
             keys[keys_last] = keys[keys_last][:-1]
-
             # Split first keys part into two parts on the [ and add them back onto
             # the beginning of the keys array.
             keys = [*keys.pop(0).split("["), *keys]
@@ -68,103 +92,108 @@ def loads(
         else:
             keys_last = 0
 
-        if len(param) == 2:
-            if coerce and val:
-                if val in constants:
-                    val = constants[val]
-                else:
-                    # using .match would seem to catch "1�" and "3\r\n"
-                    # but using .fullmatch doesn't catch '0000000000000000000000'
-                    match_number = json.scanner.NUMBER_RE.fullmatch(val)
-                    if match_number is not None:
-                        integer, frac, exp = match_number.groups()
-                        if frac or exp:
-                            val = float(integer + (frac or "") + (exp or ""))
-                        else:
-                            val = int(integer)
-                    elif all(chr in string.digits for chr in val):
-                        if val[0] == "0":
-                            # don't convert, because it's a special string
-                            # like 'account': '003532663'
-                            pass
-                        else:
-                            val = int(val)
-
-            # Complex key, build deep object structure based on a few rules:
-            # The 'cur' pointer starts at the object top-level.
-            #
-            #   * [] = array push (n is set to array length), [n] = array if n is
-            #     numeric, otherwise object.
-            #
-            #   * If at the last keys part, set the value.
-            #
-            #   * For each keys part, if the current level is undefined create an
-            #     object or array based on the type of the next keys part.
-            #
-            #   * Move the 'cur' pointer to the next level.
-            #
-            #   * Rinse & repeat.
-            if keys_last:
-                while i <= keys_last:
-
-                    key = len(cur) if keys[i] == "" else keys[i]
-                    # Does it look like an array key? If so, make it one.
-                    if isinstance(key, str) and key[0] in string.digits:
-                        try:
-                            key = int(key)
-                        except ValueError:
-                            pass
-
-                    # https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
-                    # Todo: figure out how to unwrap this from being 2 closures
-                    def inner2():
-                        if keys[i + 1] and any(
-                            chr not in string.digits for chr in keys[i + 1]
-                        ):
-                            return {}
-                        return []
-
-                    def inner():
-                        if i < keys_last:
-                            try:
-                                return cur[key]
-                            except (IndexError, KeyError):
-                                return inner2()
-                        return val
-
-                    # Need the value slightly ahead-of-time to backfill incomplete
-                    # arrays with the same type...
-                    bit = inner()
-                    if isinstance(cur, list) and isinstance(key, int):
-                        # Have to fill up the list if the key isn't 0, because
-                        # Python is less lax and it'd be an:
-                        # IndexError: list assignment index out of range
-                        while len(cur) <= key:
-                            cur.append(type(bit)())
-                    cur[key] = bit
-                    cur = cur[key]
-                    i += 1
-            # Simple key, even simpler rules, since only scalars and shallow
-            # arrays are allowed.
+        # if key:
+        if coerce and val:
+            if val in constants:
+                val = constants[val]
             else:
-                # val is already an array, so push on the next value.
-                if isinstance(obj, dict) and key in obj and isinstance(obj[key], list):
-                    # if isinstance(obj[key], list):
-                    obj[key].append(val)
-                # val isn't an array, but since a second value has been specified,
-                # convert val into an array.
-                elif not isinstance(obj, list) and key in obj:
-                    obj[key] = [obj.get(key, ""), val]
-                # val is a scalar.
-                else:
-                    obj[key] = val
-        elif key:
-            obj[key] = val
+                # using .match would seem to catch "1�" and "3\r\n"
+                # but using .fullmatch doesn't catch '0000000000000000000000'
+                match_number = json.scanner.NUMBER_RE.fullmatch(val)
+                if match_number is not None:
+                    integer, frac, exp = match_number.groups()
+                    if frac or exp:
+                        val = float(integer + (frac or "") + (exp or ""))
+                    else:
+                        val = int(integer)
+                elif all(chr in string.digits for chr in val):
+                    if val[0] == "0":
+                        # don't convert, because it's a special string
+                        # like 'account': '003532663'
+                        pass
+                    else:
+                        val = int(val)
+
+        # Complex key, build deep object structure based on a few rules:
+        # The 'cur' pointer starts at the object top-level.
+        #
+        #   * [] = array push (n is set to array length), [n] = array if n is
+        #     numeric, otherwise object.
+        #
+        #   * If at the last keys part, set the value.
+        #
+        #   * For each keys part, if the current level is undefined create an
+        #     object or array based on the type of the next keys part.
+        #
+        #   * Move the 'cur' pointer to the next level.
+        #
+        #   * Rinse & repeat.
+        if keys_last:
+            while i <= keys_last:
+
+                key = len(cur) if keys[i] == "" else keys[i]
+                # Does it look like an array key? If so, make it one.
+                if isinstance(key, str) and key[0] in string.digits:
+                    try:
+                        key = int(key)
+                    except ValueError:
+                        pass
+
+                # https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
+                # Todo: figure out how to unwrap this from being 2 closures
+                def inner2():
+                    if keys[i + 1] and any(
+                        chr not in string.digits for chr in keys[i + 1]
+                    ):
+                        return {}
+                    return []
+
+                def inner():
+                    if i < keys_last:
+                        try:
+                            return cur[key]
+                        except (IndexError, KeyError):
+                            return inner2()
+                    return val
+
+                # Need the value slightly ahead-of-time to backfill incomplete
+                # arrays with the same type...
+                bit = inner()
+                if isinstance(cur, list) and isinstance(key, int):
+                    # Have to fill up the list if the key isn't 0, because
+                    # Python is less lax and it'd be an:
+                    # IndexError: list assignment index out of range
+                    while len(cur) <= key:
+                        cur.append(type(bit)())
+                cur[key] = bit
+                cur = cur[key]
+                i += 1
+        # Simple key, even simpler rules, since only scalars and shallow
+        # arrays are allowed.
+        else:
+            # val is already an array, so push on the next value.
+            if isinstance(obj, dict) and key in obj and isinstance(obj[key], list):
+                # If we've parsed as second value like foo[]=1&foo[]=2, keep
+                # going as an already-made list.
+                # If it's not got the array/dict chars, like foo[]=1&foo=2
+                # then still treat it as an array, because foo=1&foo=2 should
+                # be multiple values for the same key
+                obj[key].append(val)
+            # val isn't an array, but since a second value has been specified,
+            # convert val into an array.
+            elif not isinstance(obj, list) and key in obj:
+                obj[key] = [obj.get(key, ""), val]
+            # val is a scalar.
+            else:
+                obj[key] = val
 
     return obj
 
 
-def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]], encoding='utf-8'):
+def dumps(
+    data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]],
+    encoding="utf-8",
+):
     """
     Dump a (potentially) nested dictionary into a URL encoded string.
 
@@ -202,7 +231,7 @@ def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, No
             value = str(value)
         quoted_key = quote_plus(key, encoding=encoding)
         quoted_value = quote_plus(value, encoding=encoding)
-        return f'{quoted_key}={quoted_value}'
+        return f"{quoted_key}={quoted_value}"
 
     def build_params(prefix, obj) -> list:
         if prefix:
@@ -223,4 +252,5 @@ def dumps(data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, No
             for key, value in obj.items():
                 build_params(key, value)
         return s
-    return "&".join(build_params('', data))
+
+    return "&".join(build_params("", data))
