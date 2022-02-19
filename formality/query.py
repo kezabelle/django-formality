@@ -65,7 +65,7 @@ def loads(
         # Just drop processing immediately if the key looks invalid. Yes there
         # are false positives for if someone tries to do a[[[] expecting a key
         # of "[[" or something, but that may not even be what they're expecting...
-        if "[[" in key or "]]" in key:
+        if "[[" in key or "]]" in key or key[0:2] == "[]":
             raise MalformedData(key, data=qs)
         try:
             # translate value as per urllib.parse.parse_qsl
@@ -82,7 +82,7 @@ def loads(
 
         # If the first keys part contains [ and the last ends with ], then []
         # are correctly balanced.
-        if "[" in keys[0] and "]" in keys[keys_last]:
+        if "[" in keys[0] and keys[keys_last][-1] == "]":
             # Remove the trailing ] from the last keys part.
             keys[keys_last] = keys[keys_last][:-1]
             # Split first keys part into two parts on the [ and add them back onto

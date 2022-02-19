@@ -496,11 +496,11 @@ class TestLoadRackQueries(unittest.TestCase):
         # bbq expects different things depending on coercion. Neither results in
         # the array getting extended.
         # rack is correct.
-        # ("foo[]=bar&foo[]", {}),
+        ("foo[]=bar&foo[]", {'foo': ['bar', '']}),
         # rack expects: {"x":  { "y":  { "z":  "" } }
         # bbq produces {'x[y][z]': ''} or {} depending on coercion ...
         # rack is more correct.
-        # ("x[y][z]", {}),
+        ("x[y][z]", {'x': {'y': {'z': ''}}}),
         ("x[y][z]=1", {"x": {"y": {"z": 1}}}),
         ("x[y][z]=1&x[y][z]=2", {"x": {"y": {"z": 2}}}),
         ("x[y][z][]=1&x[y][z][]=2", {"x": {"y": {"z": [1, 2]}}}),
@@ -535,18 +535,16 @@ class TestLoadRackQueries(unittest.TestCase):
                 ]
             },
         ),
-        # rack expects: {"[]":  "1", "[a]":  "2", "b[":  "3", "c]":  "4"}
-        # bbq expects: { "undefined": [1], "b[": 3, "c]": 4 }
-        # ("[]=1&[a]=2&b[=3&c]=4", {}),
-        # rack expects: {"d":  {"[":  "5"}, "e]":  ["6"], "f":  { "[":  { "]":  "7" } }
-        # bbq expects: {"d": [ [5] ], "e][]": 6, "f": [ {"]": 7}]}
-        # ("d[[]=5&e][]=6&f[[]]=7", {}),
-        # This currently matches neither Rack nor jquery-bbq.
+        # match's rack & bbq
+        # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?b[=3&c]=4
+        ("b[=3&c]=4", {'b[': 3, 'c]': 4}),
+        # Maybe change this at some point? Doesn't match Rack, does match bbq.
+        ("&e][]=6&f=7", {'e][]': 6, 'f': 7}),
+        # This matches jquery-bbq.
         # rack expects: {"g": { "h": { "i": "8" } }, "j": { "k": { "l[m]": "9" }}}
         # bbq expects: { "g[h]i": 8, "j": { "k]l": { "m": 9 }}}
         # ... neither seems right tbh.
-        # ("g[h]i=8&j[k]l[m]=9", {}),
-        # This conforms to jquery-bbq as well as rack. Yay.
+        ("g[h]i=8&j[k]l[m]=9", {'g[h]i': 8, 'j': {'k]l': {'m': 9}}}),
     )
 
     def test_examples_from_unit_tests(self):
@@ -612,6 +610,13 @@ class TestStrictlyUnhandledQueries(unittest.TestCase):
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a[]]]=1
         ("a[]]]=1", "a[]]]"),
+        # rack expects: {"[]":  "1", "[a]":  "2", "b[":  "3", "c]":  "4"}
+        # bbq expects: { "undefined": [1], "b[": 3, "c]": 4 }
+        ("[]=1&[a]=2&b[=3&c]=4", "[]"),
+        # rack expects: {"d":  {"[":  "5"}, "e]":  ["6"], "f":  { "[":  { "]":  "7" } }
+        # bbq expects: {"d": [ [5] ], "e][]": 6, "f": [ {"]": 7}]}
+        ("d[[]=5&e][]=6&f[[]]=7", "d[[]"),
+        ("&e][]=6&f[[]]=7", "f[[]]"),
     )
 
     def test_all_complex_keys_which_should_be_marked_as_malformed(self):
