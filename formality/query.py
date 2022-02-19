@@ -24,8 +24,27 @@ class MalformedData(SuspiciousOperation):
         return f"Invalid nesting characters in key {self.key!r} of {self.data[0:200]!r}"
 
 
+COERCE_LOAD_CONSTANTS = {
+    "true": True,
+    "false": False,
+    "null": None,
+    "NaN": json.decoder.NaN,
+    "Infinity": json.decoder.PosInf,
+    "-Infinity": json.decoder.NegInf,
+}
+COERCE_DUMP_CONSTANTS = {
+    True: "true",
+    False: "false",
+    None: "null",
+    json.decoder.PosInf: "Infinity",
+    json.decoder.NegInf: "-Infinity",
+    # Can't put float('nan') -> NaN in here because it doesn't compute as
+    # the same: float('nan') == float('nan') is False
+}
+
+
 def loads(
-    qs: Union[str, bytes], encoding: str = "utf-8", coerce: bool = True
+    qs: Union[str, bytes], encoding: str = "utf-8", coerce: bool = True,
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
     """
     References:
@@ -33,14 +52,6 @@ def loads(
         https://benalman.com/code/projects/jquery-bbq/examples/deparam/
         https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/jquery.ba-bbq.js#L444-L556
     """
-    constants = {
-        "true": True,
-        "false": False,
-        "null": None,
-        "NaN": json.decoder.NaN,
-        "Infinity": json.decoder.PosInf,
-        "-Infinity": json.decoder.NegInf,
-    }
     obj = {}
     # Fast path, empty query-string.
     if not qs:
@@ -90,8 +101,8 @@ def loads(
 
         # if key:
         if coerce and val:
-            if val in constants:
-                val = constants[val]
+            if val in COERCE_LOAD_CONSTANTS:
+                val = COERCE_LOAD_CONSTANTS[val]
             else:
                 # using .match would seem to catch "1�" and "3\r\n"
                 # but using .fullmatch doesn't catch '0000000000000000000000'
@@ -195,15 +206,6 @@ def dumps(
         https://github.com/knowledgecode/jquery-param/blob/94db6fd4a34107543e4fbad84d119986a155a01f/src/index.js#L10-L48
     """
     s = []
-    constants = {
-        True: "true",
-        False: "false",
-        None: "null",
-        json.decoder.PosInf: "Infinity",
-        json.decoder.NegInf: "-Infinity",
-        # Can't put float('nan') -> NaN in here because it doesn't compute as
-        # the same: float('nan') == float('nan') is False
-    }
 
     def add(key, value):
         # Allow for coercion to work if re-loading the same value...
@@ -212,8 +214,8 @@ def dumps(
             # want to encode them as integers/floats in JSON. One example
             # within the standard library is IntEnum.
             value = int.__repr__(value)
-        elif value in constants:
-            value = constants[value]
+        elif value in COERCE_DUMP_CONSTANTS:
+            value = COERCE_DUMP_CONSTANTS[value]
         elif isinstance(value, float):
             # see comment above for int
             if value != value:
