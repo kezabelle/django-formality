@@ -141,11 +141,14 @@ def loads(
                 if key == "":
                     key = len(cur)
                 # Does it look like an array key? If so, make it one.
-                elif isinstance(key, str) and key[0] in string.digits:
-                    try:
-                        key = int(keys[i])
-                    except ValueError:
-                        pass
+                elif isinstance(key, str):
+                    for chr in key:
+                        if chr in string.digits:
+                            continue
+                        else:
+                            break
+                    else:
+                        key = int(key)
 
                 # fed https://github.com/AceMetrix/jquery-deparam/blob/81428b3939c4cbe488202b5fa823ad661d64fb49/jquery-deparam.js#L83-L86
                 # to https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
@@ -155,10 +158,15 @@ def loads(
                     try:
                         bit = cur[key]
                     except (IndexError, KeyError):
-                        if keys[i + 1] and any(
-                            chr not in string.digits for chr in keys[i + 1]
-                        ):
-                            bit = {}
+                        if keys[i + 1]:
+                            for chr in keys[i+1]:
+                                if chr in string.digits:
+                                    continue
+                                else:
+                                    bit = {}
+                                    break
+                            else:
+                                bit = []
                         else:
                             bit = []
                 else:
