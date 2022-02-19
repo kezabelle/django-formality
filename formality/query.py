@@ -155,7 +155,9 @@ def loads(
                     try:
                         bit = cur[key]
                     except (IndexError, KeyError):
-                        if keys[i + 1] and keys[i + 1][0] not in string.digits:
+                        if keys[i + 1] and any(
+                            chr not in string.digits for chr in keys[i + 1]
+                        ):
                             bit = {}
                         else:
                             bit = []
