@@ -674,8 +674,9 @@ class TestRoundTripping(unittest.TestCase):
                 "sally": {"age": 8, "sex": "F"},
             },
         },
-        {"0thing": [1, 2], "00ther": 1, "2": 'test'},
+        {"0thing": [1, 2], "00ther": 1, 2: [{"1thing": True, "9things": False}, {"4head": None, "5hed": "Shed"}]},
     )
+    maxDiff = None
 
     def test_expected_examples(self):
         for data in self.examples:
