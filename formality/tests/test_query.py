@@ -674,6 +674,7 @@ class TestRoundTripping(unittest.TestCase):
                 "sally": {"age": 8, "sex": "F"},
             },
         },
+        {"0thing": [1, 2], "00ther": 1, "2": 'test'},
     )
 
     def test_expected_examples(self):

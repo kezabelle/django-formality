@@ -136,18 +136,16 @@ def loads(
         #
         #   * Rinse & repeat.
         if keys_last:
-            while i <= keys_last:
+            for i, key in enumerate(keys):
 
-                if keys[i] == "":
+                if key == "":
                     key = len(cur)
                 # Does it look like an array key? If so, make it one.
-                elif isinstance(keys[i], str) and keys[i][0] in string.digits:
+                elif isinstance(key, str) and key[0] in string.digits:
                     try:
                         key = int(keys[i])
                     except ValueError:
-                        key = keys[i]
-                else:
-                    key = keys[i]
+                        pass
 
                 # fed https://github.com/AceMetrix/jquery-deparam/blob/81428b3939c4cbe488202b5fa823ad661d64fb49/jquery-deparam.js#L83-L86
                 # to https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
@@ -157,9 +155,7 @@ def loads(
                     try:
                         bit = cur[key]
                     except (IndexError, KeyError):
-                        if keys[i + 1] and any(
-                            chr not in string.digits for chr in keys[i + 1]
-                        ):
+                        if keys[i + 1] and keys[i + 1][0] not in string.digits:
                             bit = {}
                         else:
                             bit = []
@@ -167,13 +163,13 @@ def loads(
                     bit = val
 
                 if isinstance(cur, list) and isinstance(key, int):
+                    bit_type = type(bit)
                     # Have to fill up the list if the key isn't 0, because
                     # Python is less lax and it'd be an:
                     # IndexError: list assignment index out of range
                     while len(cur) <= key:
-                        cur.append(type(bit)())
+                        cur.append(bit_type())
                 cur[key] = cur = bit
-                i += 1
         # Simple key, even simpler rules, since only scalars and shallow
         # arrays are allowed.
         else:
