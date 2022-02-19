@@ -56,9 +56,9 @@ def loads(
 
     # Iterate over all name=value pairs.
     for part in qs.split("&"):
-        param = part.split("=", 1)
+        key, sep, val = part.partition("=")
         # translate key as per urllib.parse.parse_qsl
-        key = unquote(param[0].replace("+", " "), encoding)
+        key = unquote(key.replace("+", " "), encoding)
         # Skip empty keys (e.g. "&foo=1&&bar=2")
         if not key:
             continue
@@ -67,12 +67,8 @@ def loads(
         # of "[[" or something, but that may not even be what they're expecting...
         if "[[" in key or "]]" in key or key[0:2] == "[]":
             raise MalformedData(key, data=qs)
-        try:
             # translate value as per urllib.parse.parse_qsl
-            val = unquote(param[1].replace("+", " "), encoding)
-        except IndexError:
-            # No value was defined, so set something meaningful.
-            val = ""
+        val = unquote(val.replace("+", " "), encoding)
         cur: Union[Dict[Text, Any], List] = obj
         i = 0
         # If key is more complex than 'foo', like 'a[]' or 'a[b][c]', split it
