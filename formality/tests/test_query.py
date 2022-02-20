@@ -801,7 +801,6 @@ if HAS_HYPOTHESIS:
 
 if __name__ == "__main__":
     unittest.main(
-        module=sys.modules[__name__],
         verbosity=2,
         catchbreak=True,
         tb_locals=True,
