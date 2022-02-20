@@ -102,7 +102,6 @@ def loads(
         else:
             keys_last = 0
 
-        # if key:
         if coerce and val:
             if val in COERCE_LOAD_CONSTANTS:
                 val = COERCE_LOAD_CONSTANTS[val]
@@ -141,7 +140,10 @@ def loads(
         if keys_last:
             for i, key in enumerate(keys):
 
-                if key == "":
+                # test for '' the slightly quicker way (12ns faster), '' means
+                # array append, anything else, including '0', '1', 'abc'
+                # means array OR object add at given index/key.
+                if not key:
                     key = len(cur)
                 # Does it look like an array key? If so, make it one.
                 elif isinstance(key, str):
