@@ -1,6 +1,7 @@
 import string
 import json.decoder
-from urllib.parse import quote, unquote, quote_plus
+import types
+from urllib.parse import unquote, quote_plus
 
 import json.scanner
 from typing import Dict, Union, Text, Any, List
@@ -24,15 +25,15 @@ class MalformedData(SuspiciousOperation):
         return f"Invalid nesting characters in key {self.key!r} of {self.data[0:200]!r}"
 
 
-COERCE_LOAD_CONSTANTS = {
+COERCE_LOAD_CONSTANTS = types.MappingProxyType({
     "true": True,
     "false": False,
     "null": None,
     "NaN": json.decoder.NaN,
     "Infinity": json.decoder.PosInf,
     "-Infinity": json.decoder.NegInf,
-}
-COERCE_DUMP_CONSTANTS = {
+})
+COERCE_DUMP_CONSTANTS = types.MappingProxyType({
     True: "true",
     False: "false",
     None: "null",
@@ -40,7 +41,7 @@ COERCE_DUMP_CONSTANTS = {
     json.decoder.NegInf: "-Infinity",
     # Can't put float('nan') -> NaN in here because it doesn't compute as
     # the same: float('nan') == float('nan') is False
-}
+})
 
 
 def loads(
