@@ -256,6 +256,9 @@ def loads(
 def dumps(
     data: Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]],
     encoding="utf-8",
+    coerce: bool = True,
+    max_num_fields: int = 1000,
+    max_depth: int = 5,
 ):
     """
     Dump a (potentially) nested dictionary into a URL encoded string.
