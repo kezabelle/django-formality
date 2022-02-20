@@ -461,7 +461,12 @@ class TestLoadJQueryBbqQueries(unittest.TestCase):
     def test_examples_from_website(self):
         for qs, result in self.str_examples:
             with self.subTest(data=qs):
-                self.assertEqual(formality.query.loads(qs, coerce=True), result)
+                self.assertEqual(
+                    formality.query.loads(
+                        qs, coerce=True, max_depth=1000, max_num_fields=99999
+                    ),
+                    result,
+                )
 
 
 class TestLoadRackQueries(unittest.TestCase):
@@ -740,6 +745,18 @@ class TestManyFields(unittest.TestCase):
         # like so: {'a': {'b': ''}, 'b': ['']}
         "a[b]&b[]&a[b]",
     )
+    complex_depth_examples = (
+        # a is fine, [] * 5 is fine, but the 6th level is too much.
+        "a[][][][][][]",
+        # ditto above, but with a dictionary
+        "a[][][][][][test]",
+        # ditto above, but with only dictionary inflation
+        "a[test][test][test][test][test][test]",
+        # alternating dictionary and array addition
+        "a[test][][test][][test][]",
+        # alternating types, regardless of array index
+        "a[test][0][test][2][test][0]",
+    )
 
     def test_simple_prechecks(self):
         for data in self.simple_overflow_examples:
@@ -760,6 +777,17 @@ class TestManyFields(unittest.TestCase):
                     ),
                 ):
                     formality.query.loads(data, max_num_fields=5)
+
+    def test_nestd_keys_dont_go_too_deep(self):
+        for data in self.complex_depth_examples:
+            with self.subTest(data=data):
+                with self.assertRaisesRegex(
+                    TooManyFieldsSent,
+                    re.escape(
+                        "nested GET/POST parameters exceeded 5; received 6 nested parameters"
+                    ),
+                ):
+                    formality.query.loads(data)
 
 
 if HAS_HYPOTHESIS:

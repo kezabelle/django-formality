@@ -53,6 +53,7 @@ def loads(
     encoding: str = "utf-8",
     coerce: bool = True,
     max_num_fields: int = 1000,
+    max_depth: int = 5,
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
     """
     References:
@@ -97,7 +98,6 @@ def loads(
             # translate value as per urllib.parse.parse_qsl
         val = unquote(val.replace("+", " "), encoding)
         cur: Union[Dict[Text, Any], List] = obj
-        depth = 0
         # If key is more complex than 'foo', like 'a[]' or 'a[b][c]', split it
         # into its component parts.
         keys = key.split("][")
@@ -108,6 +108,17 @@ def loads(
         if "[" in keys[0] and keys[keys_last][-1] == "]":
             # Remove the trailing ] from the last keys part.
             keys[keys_last] = keys[keys_last][:-1]
+            # Check whether inflating this key would push us over our expected
+            # maximum depth BEFORE doing the inflate, to avoid a[][][][][][][][]...
+            # from over-committing memory usage.
+            # We use a depth of 6 to allow for 5 levels of nesting including the
+            # root key; we take 1 off the count of [ to make sure we're in-line
+            # with what keys_last would report.
+            total_depth = len(keys) + (keys[0].count("[") - 1)
+            if max_depth < total_depth:
+                raise TooManyFieldsSent(
+                    f"The depth of nested GET/POST parameters exceeded {max_depth!r}; received {total_depth!r} nested parameters"
+                )
             # Split first keys part into two parts on the [ and add them back onto
             # the beginning of the keys array.
             keys = [*keys.pop(0).split("["), *keys]
