@@ -80,6 +80,7 @@ def loads(
                 f"The number of GET/POST parameters exceeded {max_num_fields!r}; received {num_fields!r} parameters"
             )
 
+    seen_fields = 0
     # Iterate over all name=value pairs.
     for part in qs.split("&"):
         key, sep, val = part.partition("=")
@@ -111,8 +112,19 @@ def loads(
             # the beginning of the keys array.
             keys = [*keys.pop(0).split("["), *keys]
             keys_last = len(keys) - 1
+            seen_fields += keys_last + 1
         else:
             keys_last = 0
+            # Always add 1, even if it's a simple key.
+            seen_fields += 1
+
+        # Prevent any single (nested) key from continuing if it would blow over the limit
+        # This doesn't preclude spamming in a single a[][][][][][][][][][][][]...
+        # and inflating too many items, but I'll handle that via depth checks.
+        if max_num_fields < seen_fields:
+            raise TooManyFieldsSent(
+                f"The number of GET/POST parameters (including nesting) exceeded {max_num_fields!r}; received {seen_fields!r} (possibly nested) parameters"
+            )
 
         if coerce and val:
             if val in COERCE_LOAD_CONSTANTS:
@@ -151,7 +163,6 @@ def loads(
         #   * Rinse & repeat.
         if keys_last:
             for i, key in enumerate(keys):
-
                 # test for '' the slightly quicker way (12ns faster), '' means
                 # array append, anything else, including '0', '1', 'abc'
                 # means array OR object add at given index/key.
@@ -224,7 +235,6 @@ def loads(
         # val is a scalar.
         else:
             obj[key] = val
-
     return obj
 
 

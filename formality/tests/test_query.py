@@ -3,6 +3,7 @@ import sys
 import unittest
 import formality
 from formality.query import MalformedData
+from django.core.exceptions import TooManyFieldsSent
 
 try:
     from hypothesis import given, strategies as st, settings
@@ -718,6 +719,47 @@ class TestRoundTripping(unittest.TestCase):
                 loaded_coerced = formality.query.loads(dumped)
                 self.assertEqual(loaded_coerced, transformed)
 
+
+class TestManyFields(unittest.TestCase):
+    simple_overflow_examples = (
+        "a=1&b=2&c=3&d=4&e=5&f=6",
+        "a=&b=&c=&d=&e=&f=",
+        "a&b&c&d&e&f",
+    )
+    complex_overflow_examples = (
+        # the complex key 'f' pushes it over before it gets to the simple key 'b'
+        "a[b][c][d][e][f]=1&b=1",
+        # Adding the simple key 'b' is too much, and tips it over the edge.
+        "a[b][c][d][e]&b=1",
+        # Fails despite being 1 key with N levels of nesting: {'a': [[[[['']]]]]}
+        "a[][][][][]=",
+        # Fails even though it technically overwrites the previous values
+        # and ends up as 2 keys: {'a': {'b': ''}}
+        "a[b]&a[b]&a[b]",
+        # Fails even though it technically overwrites and ends up as 3 keys
+        # like so: {'a': {'b': ''}, 'b': ['']}
+        "a[b]&b[]&a[b]",
+    )
+
+    def test_simple_prechecks(self):
+        for data in self.simple_overflow_examples:
+            with self.subTest(data=data):
+                with self.assertRaisesRegex(
+                    TooManyFieldsSent,
+                    re.escape("parameters exceeded 5; received 6 parameters"),
+                ):
+                    formality.query.loads(data, max_num_fields=5)
+
+    def test_nested_keys_also_raise_once_overflowing(self):
+        for data in self.complex_overflow_examples:
+            with self.subTest(data=data):
+                with self.assertRaisesRegex(
+                    TooManyFieldsSent,
+                    re.escape(
+                        "parameters (including nesting) exceeded 5; received 6 (possibly nested) parameters"
+                    ),
+                ):
+                    formality.query.loads(data, max_num_fields=5)
 
 
 if HAS_HYPOTHESIS:
