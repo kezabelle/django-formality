@@ -206,7 +206,7 @@ def loads(
         # It implicitly ought to be an array/list here, so we can hopefully
         # ignore the required isinstance check...
         elif key in obj:
-            obj[key] = [obj.get(key, ""), val]
+            obj[key] = [obj[key], val]
         # val is a scalar.
         else:
             obj[key] = val
