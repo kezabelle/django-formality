@@ -54,14 +54,14 @@ def loads(
     coerce: bool = True,
     max_num_fields: int = 1000,
     max_depth: int = 5,
-) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
+) -> Dict[Union[str, int], Union[Dict[Union[str, int], Any], List[Any], int, float, bool, None]]:
     """
     References:
         https://benalman.com/projects/jquery-bbq-plugin/
         https://benalman.com/code/projects/jquery-bbq/examples/deparam/
         https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/jquery.ba-bbq.js#L444-L556
     """
-    obj = {}
+    obj: Dict[Union[str, int], Union[Dict[Union[str, int], Any], List[Any], int, float, bool, None]] = {}
     # Fast path, empty query-string.
     if not qs:
         return obj
@@ -97,7 +97,7 @@ def loads(
             raise MalformedData(key, data=qs)
             # translate value as per urllib.parse.parse_qsl
         val = unquote(val.replace("+", " "), encoding)
-        cur: Union[Dict[Text, Any], List] = obj
+        cur = obj
         # Check whether inflating this key would push us over our expected
         # maximum depth BEFORE doing the inflate, to avoid a[][][][][][][][]...
         # from over-committing memory usage.
