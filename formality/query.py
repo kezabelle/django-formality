@@ -5,7 +5,7 @@ from urllib.parse import unquote, quote_plus
 
 import json.scanner
 from typing import Dict, Union, Text, Any, List
-from django.core.exceptions import SuspiciousOperation
+from django.core.exceptions import SuspiciousOperation, TooManyFieldsSent
 
 
 class MalformedData(SuspiciousOperation):
@@ -25,29 +25,34 @@ class MalformedData(SuspiciousOperation):
         return f"Invalid nesting characters in key {self.key!r} of {self.data[0:200]!r}"
 
 
-COERCE_LOAD_CONSTANTS = types.MappingProxyType({
-    "true": True,
-    "false": False,
-    "null": None,
-    "NaN": json.decoder.NaN,
-    "Infinity": json.decoder.PosInf,
-    "-Infinity": json.decoder.NegInf,
-})
-COERCE_DUMP_CONSTANTS = types.MappingProxyType({
-    True: "true",
-    False: "false",
-    None: "null",
-    json.decoder.PosInf: "Infinity",
-    json.decoder.NegInf: "-Infinity",
-    # Can't put float('nan') -> NaN in here because it doesn't compute as
-    # the same: float('nan') == float('nan') is False
-})
+COERCE_LOAD_CONSTANTS = types.MappingProxyType(
+    {
+        "true": True,
+        "false": False,
+        "null": None,
+        "NaN": json.decoder.NaN,
+        "Infinity": json.decoder.PosInf,
+        "-Infinity": json.decoder.NegInf,
+    }
+)
+COERCE_DUMP_CONSTANTS = types.MappingProxyType(
+    {
+        True: "true",
+        False: "false",
+        None: "null",
+        json.decoder.PosInf: "Infinity",
+        json.decoder.NegInf: "-Infinity",
+        # Can't put float('nan') -> NaN in here because it doesn't compute as
+        # the same: float('nan') == float('nan') is False
+    }
+)
 
 
 def loads(
     qs: Union[str, bytes],
     encoding: str = "utf-8",
     coerce: bool = True,
+    max_num_fields: int = 1000,
 ) -> Dict[str, Union[Dict[Text, Any], List[Any], int, float, bool, None]]:
     """
     References:
@@ -68,6 +73,13 @@ def loads(
             # ... but some user agents are misbehaving :-(
             qs = qs.decode("iso-8859-1")
 
+    if max_num_fields:
+        num_fields = 1 + qs.count("&")
+        if max_num_fields < num_fields:
+            raise TooManyFieldsSent(
+                f"The number of GET/POST parameters exceeded {max_num_fields!r}; received {num_fields!r} parameters"
+            )
+
     # Iterate over all name=value pairs.
     for part in qs.split("&"):
         key, sep, val = part.partition("=")
@@ -84,7 +96,7 @@ def loads(
             # translate value as per urllib.parse.parse_qsl
         val = unquote(val.replace("+", " "), encoding)
         cur: Union[Dict[Text, Any], List] = obj
-        i = 0
+        depth = 0
         # If key is more complex than 'foo', like 'a[]' or 'a[b][c]', split it
         # into its component parts.
         keys = key.split("][")
