@@ -384,6 +384,33 @@ class TestLoadDjangoQueries(unittest.TestCase):
                 )
 
 
+class TestDjangoFormUrlEncoded(unittest.TestCase):
+    """
+    These are the bytestrings representing HttpRequest.body (a BytesIO?) across
+    the standard Django test suite, printed manually...
+    """
+
+    examples = (
+        # tests.requests.test_data_upload_settings.DataUploadMaxMemorySizeFormPostTests
+        # tests.requests.test_data_upload_settings.DataUploadMaxNumberOfFieldsFormPost
+        # tests.handlers.test_exception.ExceptionHandlerTests
+        # TODO: is this one right?
+        (b"a=1&a=2&a=3\r\n", "utf-8", {"a": [1, 2, "3\r\n"]}),
+        (b"key=Espa%F1a", "iso-8859-1", {"key": "España"}),
+        (b"key=Espa%C3%B1a", "utf-8", {"key": "España"}),
+        (b"name=value", "utf-8", {"name": "value"}),
+        (b"name=Hello G\xc3\xbcnter", "iso-8859-16", {"name": "Hello GĂŒnter"}),
+        (b"name=Hello G\xc3\xbcnter", "utf-8", {"name": "Hello Günter"}),
+    )
+
+    def test_form_urlencoded_from_test_suite(self):
+        for body, encoding, result in self.examples:
+            with self.subTest(data=body, encoding=encoding):
+                self.assertEqual(
+                    formality.query.loads(body, encoding=encoding, coerce=True), result
+                )
+
+
 class TestLoadJQueryBbqQueries(unittest.TestCase):
     str_examples = (
         ("a=1&a=2&a=3&b=4&c=true&d=0", {"a": [1, 2, 3], "b": 4, "c": True, "d": 0}),
@@ -796,7 +823,12 @@ if HAS_HYPOTHESIS:
         @given(qs=st.text(), coerce=st.booleans())
         @settings(max_examples=1000)
         def test_fuzz_loads(self, qs, coerce):
-            self.assertIsInstance(formality.query.loads(qs=qs, coerce=coerce), dict)
+            try:
+                data = formality.query.loads(qs=qs, coerce=coerce)
+            except MalformedData:
+                pass
+            else:
+                self.assertIsInstance(data, dict)
 
 
 if __name__ == "__main__":

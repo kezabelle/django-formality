@@ -54,14 +54,20 @@ def loads(
     coerce: bool = True,
     max_num_fields: int = 1000,
     max_depth: int = 5,
-) -> Dict[Union[str, int], Union[Dict[Union[str, int], Any], List[Any], int, float, bool, None]]:
+) -> Dict[
+    Union[str, int],
+    Union[Dict[Union[str, int], Any], List[Any], int, float, bool, None],
+]:
     """
     References:
         https://benalman.com/projects/jquery-bbq-plugin/
         https://benalman.com/code/projects/jquery-bbq/examples/deparam/
         https://github.com/cowboy/jquery-bbq/blob/8e0064ba68a34bcd805e15499cb45de3f4cc398d/jquery.ba-bbq.js#L444-L556
     """
-    obj: Dict[Union[str, int], Union[Dict[Union[str, int], Any], List[Any], int, float, bool, None]] = {}
+    obj: Dict[
+        Union[str, int],
+        Union[Dict[Union[str, int], Any], List[Any], int, float, bool, None],
+    ] = {}
     # Fast path, empty query-string.
     if not qs:
         return obj
@@ -108,7 +114,7 @@ def loads(
         # That should give us the same number (??) as we'd see if we did the
         # splitting and then checked, which would potentially balloon memory
         # just to then error.
-        total_depth = key.count("][") + key[0:key.find(']')].count("[")
+        total_depth = key.count("][") + key[0 : key.find("]")].count("[")
         if max_depth < total_depth:
             raise TooManyFieldsSent(
                 f"The depth of nested GET/POST parameters exceeded {max_depth!r}; received {total_depth!r} nested parameters"
