@@ -1,19 +1,20 @@
 import re
-import sys
-import unittest
+from io import BytesIO
+from unittest import TestCase, main
 import formality
-from formality.query import MalformedData
 from django.core.exceptions import TooManyFieldsSent
+from django.test import TestCase as DjangoTestCase, RequestFactory
+from django.core.files import File
 
 try:
-    from hypothesis import given, strategies as st, settings
+    from hypothesis import given, strategies as st, settings as hyposettings
 
     HAS_HYPOTHESIS = True
 except ModuleNotFoundError:
     HAS_HYPOTHESIS = False
 
 
-class TestLoadDjangoQueries(unittest.TestCase):
+class TestLoadDjangoQueries(TestCase):
     # These come from running the Django test suite and instrumenting
     # QueryDict.__init__ like so:
     # print(repr(original_qs), repr(query_string), repr(self.encoding), repr(dict(self)), sep=", ", end=",\n")
@@ -384,7 +385,7 @@ class TestLoadDjangoQueries(unittest.TestCase):
                 )
 
 
-class TestDjangoFormUrlEncoded(unittest.TestCase):
+class TestDjangoFormUrlEncoded(TestCase):
     """
     These are the bytestrings representing HttpRequest.body (a BytesIO?) across
     the standard Django test suite, printed manually...
@@ -411,7 +412,7 @@ class TestDjangoFormUrlEncoded(unittest.TestCase):
                 )
 
 
-class TestLoadJQueryBbqQueries(unittest.TestCase):
+class TestLoadJQueryBbqQueries(TestCase):
     str_examples = (
         ("a=1&a=2&a=3&b=4&c=true&d=0", {"a": [1, 2, 3], "b": 4, "c": True, "d": 0}),
         (
@@ -496,7 +497,7 @@ class TestLoadJQueryBbqQueries(unittest.TestCase):
                 )
 
 
-class TestLoadRackQueries(unittest.TestCase):
+class TestLoadRackQueries(TestCase):
     # Mostly from https://github.com/rack/rack/blob/f04b83debdf6b74e5f97115e7029e8e11e69df6b/test/spec_utils.rb#L170-L298
     str_examples = (
         ('foo="bar"', {"foo": '"bar"'}),
@@ -586,7 +587,7 @@ class TestLoadRackQueries(unittest.TestCase):
                 self.assertEqual(formality.query.loads(qs, coerce=True), result)
 
 
-class TestLoadOdditiesAndMalformed(unittest.TestCase):
+class TestLoadOdditiesAndMalformed(TestCase):
     str_examples = (
         # matches jquery-bbq's deparam
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]=1
@@ -620,7 +621,7 @@ class TestLoadOdditiesAndMalformed(unittest.TestCase):
                 self.assertEqual(result, formality.query.loads(qs, coerce=True))
 
 
-class TestStrictlyUnhandledQueries(unittest.TestCase):
+class TestStrictlyUnhandledQueries(TestCase):
     examples = (
         # https://benalman.com/code/projects/jquery-bbq/examples/deparam/?a]]]=1
         ("a]]]=1", "a]]]"),
@@ -657,12 +658,12 @@ class TestStrictlyUnhandledQueries(unittest.TestCase):
             bad_key = re.escape(bad_key)
             with self.subTest(data=qs):
                 with self.assertRaisesRegex(
-                    MalformedData, f"Invalid nesting characters in key '{bad_key}'"
+                    formality.query.MalformedData, f"Invalid nesting characters in key '{bad_key}'"
                 ):
                     formality.query.loads(qs, coerce=True)
 
 
-class TestDumpQueries(unittest.TestCase):
+class TestDumpQueries(TestCase):
     examples = (
         ({"test": [1, 2, 3]}, "test%5B0%5D=1&test%5B1%5D=2&test%5B2%5D=3"),
         ({"test": 1}, "test=1"),
@@ -696,7 +697,7 @@ class TestDumpQueries(unittest.TestCase):
                 self.assertEqual(formality.query.dumps(data), qs)
 
 
-class TestRoundTripping(unittest.TestCase):
+class TestRoundTripping(TestCase):
     examples = (
         {"test": [{"a": [1, 2]}, {"b": [3, 4]}]},
         {
@@ -752,7 +753,7 @@ class TestRoundTripping(unittest.TestCase):
                 self.assertEqual(loaded_coerced, transformed)
 
 
-class TestManyFields(unittest.TestCase):
+class TestManyFields(TestCase):
     simple_overflow_examples = (
         "a=1&b=2&c=3&d=4&e=5&f=6",
         "a=&b=&c=&d=&e=&f=",
@@ -817,22 +818,98 @@ class TestManyFields(unittest.TestCase):
                     formality.query.loads(data)
 
 
+class TestMultipartParsing(DjangoTestCase):
+    @classmethod
+    def setUpClass(cls):
+        from django.conf import settings
+        if not settings.configured:
+            settings.configure(
+                DATABASES={
+                    "default": {
+                    "ENGINE": "django.db.backends.sqlite3",
+                    "NAME": ":memory:",
+                }
+                }
+            )
+        super().setUpClass()
+
+    def test_simple_nested_multipart(self):
+        rf = RequestFactory()
+        request = rf.post(
+            path='/',
+            data={
+                'a[]': 1,
+                'a[1]': 2,
+                'c': [1, 2, 3],
+                'b[test][other]': BytesIO(b'mybinarydata'),
+            }
+        )
+        formality.views.RequestParser.process_request(request)
+        self.assertEqual(request.POST, {'a': [1, 2], 'c': [1, 2, 3]})
+        self.assertIn("b", request.FILES)
+        self.assertIn("test", request.FILES["b"])
+        self.assertIn("other", request.FILES["b"]["test"])
+        self.assertIsInstance(request.FILES["b"]["test"]["other"], File)
+
+    def test_array_of_multipart(self):
+        rf = RequestFactory()
+        request = rf.post(
+            path='/',
+            data={
+                'a[test]': [BytesIO(b'mybinarydata'), BytesIO(b'mybinarydata2')],
+                'b': [BytesIO(b'mybinarydata'), BytesIO(b'mybinarydata2')],
+            }
+        )
+        formality.views.RequestParser.process_request(request)
+        self.assertEqual(request.POST, {})
+        self.assertEqual(len(request.FILES["b"]), 2)
+        self.assertIn("a", request.FILES)
+        self.assertIn("test", request.FILES["a"])
+        self.assertEqual(len(request.FILES["a"]["test"]), 2)
+
+    def test_collision(self):
+        rf = RequestFactory()
+        request = rf.post(
+            path='/',
+            data={
+                'b': ['test', BytesIO(b'mybinarydata')],
+            }
+        )
+        formality.views.RequestParser.process_request(request)
+        self.assertEqual(request.POST, {'b': 'test'})
+        self.assertEqual(request.FILES["b"].read(), b'mybinarydata')
+
+    def test_deeply_nested_collision(self):
+        rf = RequestFactory()
+        request = rf.post(
+            path='/',
+            data={
+                'b[test][best][other]': ['test', BytesIO(b'mybinarydata'), 'testing'],
+            }
+        )
+        formality.views.RequestParser.process_request(request)
+        self.assertEqual(request.POST, {'b': {'test': {'best': {'other': ['test', 'testing']}}}})
+        # TODO: is it correct to expect 'other' to be a single value, rather than
+        #   a list????
+        self.assertEqual(request.FILES["b"]["test"]["best"]["other"].read(), b'mybinarydata')
+
+
 if HAS_HYPOTHESIS:
 
-    class TestFuzzLoads(unittest.TestCase):
+    class TestFuzzLoads(TestCase):
         @given(qs=st.text(), coerce=st.booleans())
-        @settings(max_examples=1000)
+        @hyposettings(max_examples=1000)
         def test_fuzz_loads(self, qs, coerce):
             try:
                 data = formality.query.loads(qs=qs, coerce=coerce)
-            except MalformedData:
+            except formality.query.MalformedData:
                 pass
             else:
                 self.assertIsInstance(data, dict)
 
 
 if __name__ == "__main__":
-    unittest.main(
+    main(
         verbosity=2,
         catchbreak=True,
         tb_locals=True,
