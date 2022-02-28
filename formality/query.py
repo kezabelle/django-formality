@@ -385,6 +385,12 @@ def _load_key_value(
                         break
                 else:
                     key = int(key)
+                    # TODO: either here or in the while loop to backfill an array,
+                    #   ensure that adding N items also increases the seen_fields?
+                    if max_num_fields < key:
+                        raise TooManyFieldsSent(
+                            f"The index [{key}] of parameter exceeded {max_num_fields!r} total allowed parameters"
+                        )
 
             # fed https://github.com/AceMetrix/jquery-deparam/blob/81428b3939c4cbe488202b5fa823ad661d64fb49/jquery-deparam.js#L83-L86
             # to https://opengg.github.io/babel-plugin-transform-ternary-to-if-else/
